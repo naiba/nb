@@ -2,16 +2,21 @@
 
 My terminal assistant
 
-## :fried_egg: 食用指南
+## :fried_egg: Quick Start
 
 ```sh
 go install github.com/naiba/nb@latest
-nb -h
+nb help
 ```
 
-## To do
+Append this line to your `.zshrc`
 
-- [x] 打印自定义 banner
-- [ ] 不同仓库下的 git 账户
-- [ ] SSH 主机管理
-- [ ] git/ssh/scp/rsync 代理配置
+```sh
+alias NB_CONFIG_PATH=/path-to-nb.yaml nb
+
+# Also you can put your alias etc. to `nb` snippet then source them
+source <(/path-to-go/bin/nb --config-path /path-to-nb.yaml print-snippet profile)
+
+# Print banner
+nb banner
+```

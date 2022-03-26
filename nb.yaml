@@ -14,3 +14,25 @@ banner: |
                                     ░
   {{ .AnsiColor.Green }}============ Now: {{ .Now "Monday, 2 Jan 2006" }} ============
   {{ .AnsiColor.Green }}
+snippet:
+  profile: |
+    alias outdated-cask="brew outdated --greedy --cask"
+    alias npxl="npx --no-install"
+git:
+  nb:
+    name: naiba
+    email: hi@nai.ba
+    sshprikey: ~/Backup/密钥/github_id_ed25519
+ssh:
+  github:
+    login: git
+    # port: 22 # 22 by default
+    host: github.com
+    prikey: ~/Backup/密钥/github_id_ed25519
+proxy:
+  rpi-socks:
+    host: 192.168.55.254
+    port: 9050
+  rpi-http:
+    host: 192.168.55.254
+    port: 8888
