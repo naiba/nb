@@ -1,8 +1,11 @@
 package cmd
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
+	"net/http"
 	"strings"
 
 	"github.com/urfave/cli/v2"
@@ -29,6 +32,7 @@ var gitCmd = &cli.Command{
 		gitCommitCommand,
 		gitWhoCommand,
 		gitSetupCommand,
+		gitCoauthoredByCommand,
 	},
 	Action: func(c *cli.Context) error {
 		_, env, err := getGitEnvForUser(c)
@@ -62,6 +66,32 @@ var gitWhoCommand = &cli.Command{
 	},
 }
 
+var gitCoauthoredByCommand = &cli.Command{
+	Name:    "co-authored-by",
+	Aliases: []string{"cab"},
+	Action: func(c *cli.Context) error {
+		users := c.Args().Slice()
+		for i := 0; i < len(users); i++ {
+			resp, err := http.Get("https://api.github.com/users/" + users[i])
+			if err != nil {
+				panic(err)
+			}
+			body, err := ioutil.ReadAll(resp.Body)
+			resp.Body.Close()
+			if err != nil {
+				panic(err)
+			}
+			var u GitHubUserInfoResponse
+			err = json.Unmarshal(body, &u)
+			if err != nil {
+				panic(err)
+			}
+			fmt.Printf("Co-authored-by: %s <%d+%s@users.noreply.github.com>\n", u.Login, u.ID, u.Login)
+		}
+		return nil
+	},
+}
+
 var gitSetupCommand = &cli.Command{
 	Name:  "setup",
 	Usage: "Setup or tear-down the git account config locally.",
@@ -82,6 +112,15 @@ var gitSetupCommand = &cli.Command{
 		}
 		return gitWhoCommand.Action(c)
 	},
+}
+
+type GitHubUserInfoResponse struct {
+	ID      uint64
+	Login   string
+	Blog    *string
+	Name    *string
+	Company *string
+	Email   *string
 }
 
 func getGitEnvForUser(c *cli.Context) (*model.GitAccount, []string, error) {
