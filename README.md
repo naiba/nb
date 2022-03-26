@@ -18,5 +18,5 @@ alias NB_CONFIG_PATH=/path-to-nb.yaml nb
 source <(/path-to-go/bin/nb --config-path /path-to-nb.yaml print-snippet profile)
 
 # Print banner
-nb banner
+nb print-banner
 ```
