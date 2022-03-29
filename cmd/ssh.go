@@ -13,7 +13,7 @@ func init() {
 
 var sshCmd = &cli.Command{
 	Name:  "ssh",
-	Usage: "Enhanced ssh workflow.",
+	Usage: "Enhanced ssh command.",
 	Action: func(c *cli.Context) error {
 		var args []string
 

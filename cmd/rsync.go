@@ -13,7 +13,7 @@ func init() {
 
 var rsyncCmd = &cli.Command{
 	Name:            "rsync",
-	Usage:           "Enhanced rsync workflow.",
+	Usage:           "Enhanced rsync command.",
 	SkipFlagParsing: true,
 	Action: func(c *cli.Context) error {
 		var proxyCommand string
@@ -37,7 +37,7 @@ var rsyncCmd = &cli.Command{
 				return cli.Exit("ssh server not found: "+sshServerName, 1)
 			}
 			args = append(args, "-e", fmt.Sprintf("ssh -i %s -p %s%s", server.Prikey, server.Port, proxyCommand))
-			if err := replaceRemotePath(extArgs, server); err != nil {
+			if err := ReplaceRemotePath(extArgs, server); err != nil {
 				return err
 			}
 		}

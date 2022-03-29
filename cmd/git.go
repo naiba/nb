@@ -2,16 +2,12 @@ package cmd
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
 	"strings"
 
 	"github.com/urfave/cli/v2"
-
-	"github.com/naiba/nb/model"
-	"github.com/naiba/nb/singleton"
 )
 
 func init() {
@@ -19,15 +15,9 @@ func init() {
 }
 
 var gitCmd = &cli.Command{
-	Name:  "git",
-	Usage: "Enhanced git workflow.",
-	Flags: []cli.Flag{
-		&cli.StringFlag{
-			Name:    "user",
-			Aliases: []string{"u"},
-			Usage:   "Choose a git account to execute commands.",
-		},
-	},
+	Name:            "git",
+	Usage:           "Enhanced git command.",
+	SkipFlagParsing: true,
 	Subcommands: []*cli.Command{
 		gitCommitCommand,
 		gitWhoCommand,
@@ -35,7 +25,7 @@ var gitCmd = &cli.Command{
 		gitCoauthoredByCommand,
 	},
 	Action: func(c *cli.Context) error {
-		_, env, err := getGitEnvForUser(c)
+		_, env, err := GetGitSSHCommandEnv(c.String("git-user"), c.String("proxy"))
 		if err != nil {
 			return cli.Exit(err.Error(), 1)
 		}
@@ -44,9 +34,10 @@ var gitCmd = &cli.Command{
 }
 
 var gitCommitCommand = &cli.Command{
-	Name: "commit",
+	Name:            "commit",
+	SkipFlagParsing: true,
 	Action: func(c *cli.Context) error {
-		account, env, err := getGitEnvForUser(c)
+		account, env, err := GetGitSSHCommandEnv(c.String("git-user"), c.String("proxy"))
 		if err != nil {
 			return cli.Exit(err.Error(), 1)
 		}
@@ -96,7 +87,7 @@ var gitSetupCommand = &cli.Command{
 	Name:  "setup",
 	Usage: "Setup or tear-down the git account config locally.",
 	Action: func(c *cli.Context) error {
-		account, env, err := getGitEnvForUser(c)
+		account, env, err := GetGitSSHCommandEnv(c.String("git-user"), c.String("proxy"))
 		if err != nil {
 			return cli.Exit(err.Error(), 1)
 		}
@@ -121,28 +112,4 @@ type GitHubUserInfoResponse struct {
 	Name    *string
 	Company *string
 	Email   *string
-}
-
-func getGitEnvForUser(c *cli.Context) (*model.GitAccount, []string, error) {
-	user := c.String("user")
-	if user == "" {
-		return nil, nil, nil
-	}
-	account, exists := singleton.Config.Git[user]
-	if !exists {
-		return nil, nil, errors.New("git user not exists: " + user)
-	}
-	proxyName := c.String("proxy")
-	if proxyName == "" {
-		return &account, []string{
-			"GIT_SSH_COMMAND=ssh -i \"" + account.SSHPrikey + "\" -o IdentitiesOnly=yes",
-		}, nil
-	}
-	server, exists := singleton.Config.Proxy[proxyName]
-	if !exists {
-		return nil, nil, errors.New("proxy server not found: " + proxyName)
-	}
-	return &account, []string{
-		"GIT_SSH_COMMAND=ssh -i \"" + account.SSHPrikey + "\" -o ProxyCommand=\"nc -X 5 -x " + fmt.Sprintf("%s:%s", server.Host, server.Port) + " %h %p\" -o IdentitiesOnly=yes",
-	}, nil
 }

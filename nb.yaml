@@ -19,7 +19,7 @@ snippet:
     alias outdated-cask="brew outdated --greedy --cask"
     alias npxl="npx --no-install"
 git:
-  nb:
+  naiba:
     name: naiba
     email: hi@nai.ba
     sshprikey: ~/Backup/密钥/github_id_ed25519

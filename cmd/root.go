@@ -23,6 +23,11 @@ var rootCmd = &cli.App{
 			Usage:   "Choose a ssh server to execute commands.",
 		},
 		&cli.StringFlag{
+			Name:    "git-user",
+			Aliases: []string{"gu"},
+			Usage:   "Choose a git account to set GIT_SSH_COMMAND env.",
+		},
+		&cli.StringFlag{
 			Name:    "config-path",
 			Aliases: []string{"c"},
 			Usage:   "Choose a config file path.",
@@ -35,7 +40,7 @@ var rootCmd = &cli.App{
 	Action: func(c *cli.Context) error {
 		args := c.Args().Slice()
 		if len(args) == 0 {
-			return nil
+			return cli.ShowAppHelp(c)
 		}
 		if len(args) > 1 {
 			return ExecuteInHost(nil, args[0], args[1:]...)

@@ -1,22 +1,32 @@
-# 终端助手
+# NB Terminal assistant
 
-My terminal assistant
+:knife: My terminal assistant, enhanced git, ssh, scp ... commands.
 
-## :fried_egg: Quick Start
+## Installation
+
+Config file example [./nb.yaml](./nb.yaml)
 
 ```sh
 go install github.com/naiba/nb@latest
-nb help
+# Append this line to your `.zshrc`
+alias nb="NB_CONFIG_PATH=/path-to-nb.yaml /path-to-go/bin/nb"
 ```
 
-Append this line to your `.zshrc`
+## Usage
 
 ```sh
-alias NB_CONFIG_PATH=/path-to-nb.yaml nb
-
-# Also you can put your alias etc. to `nb` snippet then source them
 source <(/path-to-go/bin/nb --config-path /path-to-nb.yaml print-snippet profile)
 
 # Print banner
 nb print-banner
+
+# Connecting to SSH server via socks proxy
+nb -p rpi-socks -ss github ssh
+
+# Copy remote files via socks proxy
+nb -p rpi-socks -ss github scp ./nb.yaml remote:/
+
+# Specify an account to perform git operations
+# This commit will be signed by naiba even if you are in the git repo of another account.
+nb -gu naiba git commit -a -m "test"
 ```
