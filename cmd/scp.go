@@ -12,8 +12,9 @@ func init() {
 }
 
 var scpCmd = &cli.Command{
-	Name:  "scp",
-	Usage: "Enhanced scp command.",
+	Name:            "scp",
+	Usage:           "Enhanced scp command.",
+	SkipFlagParsing: true,
 	Action: func(c *cli.Context) error {
 		var args []string
 

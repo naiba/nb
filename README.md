@@ -24,7 +24,7 @@ nb print-banner
 nb -p rpi-socks -ss github ssh
 
 # Copy remote files via socks proxy
-nb -p rpi-socks -ss github scp ./nb.yaml remote:/
+nb -p rpi-socks -ss github scp -v -r ./nb.yaml remote:/
 
 # Specify an account to perform git operations
 # This commit will be signed by naiba even if you are in the git repo of another account.
