@@ -42,10 +42,22 @@ var rootCmd = &cli.App{
 		if len(args) == 0 {
 			return cli.ShowAppHelp(c)
 		}
-		if len(args) > 1 {
-			return ExecuteInHost(nil, args[0], args[1:]...)
+
+		var env []string
+
+		proxyName := c.String("proxy")
+		if proxyName != "" {
+			server, exists := singleton.Config.Proxy[proxyName]
+			if !exists {
+				return cli.Exit("proxy server not found: "+proxyName, 1)
+			}
+			env = append(env, "ALL_PROXY=socks5h://"+fmt.Sprintf("%s:%s", server.Host, server.Port))
 		}
-		return ExecuteInHost(nil, args[0])
+
+		if len(args) > 1 {
+			return ExecuteInHost(env, args[0], args[1:]...)
+		}
+		return ExecuteInHost(env, args[0])
 	},
 }
 

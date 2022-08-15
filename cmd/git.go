@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/urfave/cli/v2"
@@ -23,6 +24,7 @@ var gitCmd = &cli.Command{
 		gitWhoCommand,
 		gitSetupCommand,
 		gitCoauthoredByCommand,
+		gitSalonCommand,
 	},
 	Action: func(c *cli.Context) error {
 		_, env, err := GetGitSSHCommandEnv(c.String("git-user"), c.String("proxy"))
@@ -47,6 +49,38 @@ var gitCommitCommand = &cli.Command{
 		}
 		args = append(args, c.Args().Slice()...)
 		return ExecuteInHost(env, "git", args...)
+	},
+}
+
+var getGitDirectoryName = regexp.MustCompile(`\/([^\/]*)\.git`)
+
+var gitSalonCommand = &cli.Command{
+	Name:            "salon",
+	SkipFlagParsing: true,
+	Action: func(c *cli.Context) error {
+		args := []string{"clone"}
+		_, env, err := GetGitSSHCommandEnv(c.String("git-user"), c.String("proxy"))
+		if err != nil {
+			return err
+		}
+		args = append(args, c.Args().Slice()...)
+
+		matched := getGitDirectoryName.FindAllStringSubmatch(strings.Join(args, " "), 1)
+		if len(matched[0]) != 2 {
+			return fmt.Errorf("failed to parse git directory name from %s", args)
+		}
+		if err := ExecuteInHost(env, "git", args...); err != nil {
+			return err
+		}
+
+		args = []string{"cd", matched[0][1], "&&", "nb"}
+		if c.String("proxy") != "" {
+			args = append(args, "-p "+c.String("proxy"))
+		}
+		args = append(args, "-gu "+c.String("git-user"))
+		args = append(args, "git setup")
+
+		return ExecuteLineInHost(strings.Join(args, " "))
 	},
 }
 
