@@ -61,7 +61,7 @@ func ReplaceRemotePath(slice []string, server model.SSHAccount) error {
 		}
 	}
 	if !replaced {
-		return fmt.Errorf("Remote path (remote:) not found in args: %v", slice)
+		return fmt.Errorf("remote path (remote:) not found in args: %v", slice)
 	}
 	return nil
 }
