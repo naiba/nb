@@ -4,11 +4,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"regexp"
 	"strings"
 
+	"github.com/google/go-github/v47/github"
 	"github.com/urfave/cli/v2"
+	"golang.org/x/oauth2"
 )
 
 func init() {
@@ -25,6 +28,7 @@ var gitCmd = &cli.Command{
 		gitSetupCommand,
 		gitCoauthoredByCommand,
 		gitSalonCommand,
+		gitPurgeArtifactsCommand,
 	},
 	Action: func(c *cli.Context) error {
 		_, env, err := GetGitSSHCommandEnv(c.String("git-user"), c.String("proxy"))
@@ -136,6 +140,87 @@ var gitSetupCommand = &cli.Command{
 			}
 		}
 		return gitWhoCommand.Action(c)
+	},
+}
+
+var gitPurgeArtifactsCommand = &cli.Command{
+	Name:    "purge-artifacts",
+	Aliases: []string{"pa"},
+	Usage:   "Purge the artifacts of the user or organization.",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:    "access-token",
+			Aliases: []string{"t"},
+		},
+		&cli.StringFlag{
+			Name:    "user",
+			Aliases: []string{"u"},
+		},
+		&cli.StringSliceFlag{
+			Name:    "ignore",
+			Aliases: []string{"e"},
+		},
+	},
+	Action: func(ctx *cli.Context) error {
+		ts := oauth2.StaticTokenSource(
+			&oauth2.Token{AccessToken: ctx.String("access-token")},
+		)
+		tc := oauth2.NewClient(ctx.Context, ts)
+		client := github.NewClient(tc)
+		var opts = &github.RepositoryListOptions{}
+		var allRepos []*github.Repository
+		for opts != nil {
+			repos, resp, err := client.Repositories.List(ctx.Context, "", opts)
+			if err != nil {
+				return err
+			}
+			if resp.NextPage > 0 {
+				opts.ListOptions.Page = resp.NextPage
+			} else {
+				opts = nil
+			}
+			allRepos = append(allRepos, repos...)
+		}
+
+		ignores := ctx.StringSlice("ignore")
+		var ignoresMap = make(map[string]bool)
+		for _, ignore := range ignores {
+			ignoresMap[strings.ToLower(ignore)] = true
+		}
+
+		for _, repo := range allRepos {
+			repoName := fmt.Sprintf("%s/%s", *repo.Owner.Login, *repo.Name)
+			if ignoresMap[strings.ToLower(repoName)] {
+				continue
+			}
+			if !strings.EqualFold(*repo.Owner.Login, ctx.String("user")) {
+				continue
+			}
+			log.Printf("Processing %s/%s", *repo.Owner.Login, *repo.Name)
+			var opts = &github.ListOptions{}
+			var allArtifacts []*github.Artifact
+			for opts != nil {
+				artifacts, resp, err := client.Actions.ListArtifacts(ctx.Context, *repo.Owner.Login, *repo.Name, opts)
+				if err != nil {
+					return err
+				}
+				if resp.NextPage > 0 {
+					opts.Page = resp.NextPage
+				} else {
+					opts = nil
+				}
+				allArtifacts = append(allArtifacts, artifacts.Artifacts...)
+			}
+			log.Printf("Deleting %d artifacts", len(allArtifacts))
+			for _, artifact := range allArtifacts {
+				_, err := client.Actions.DeleteArtifact(ctx.Context, *repo.Owner.Login, *repo.Name, *artifact.ID)
+				if err != nil {
+					return err
+				}
+			}
+			log.Printf("Done %s/%s", *repo.Owner.Login, *repo.Name)
+		}
+		return nil
 	},
 }
 
