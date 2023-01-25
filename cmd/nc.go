@@ -24,7 +24,7 @@ var ncCmd = &cli.Command{
 			if !exists {
 				return cli.Exit("proxy server not found: "+proxyName, 1)
 			}
-			args = append(args, "-x", fmt.Sprintf("%s:%s", server.Host, server.Port)+" %h %p")
+			args = append(args, "-x", fmt.Sprintf("%s:%s", server.Host, server.Port))
 		}
 
 		return ExecuteInHost(nil, "nc", append(args, c.Args().Slice()...)...)
