@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"net"
 
 	"github.com/naiba/nb/singleton"
 	"github.com/urfave/cli/v2"
@@ -24,7 +25,8 @@ var ncCmd = &cli.Command{
 			if !exists {
 				return cli.Exit("proxy server not found: "+proxyName, 1)
 			}
-			args = append(args, "-x", fmt.Sprintf("%s:%s", server.Host, server.Port))
+			socksHost, socksPort, _ := net.SplitHostPort(server.Socks)
+			args = append(args, "-x", fmt.Sprintf("%s:%s", socksHost, socksPort))
 		}
 
 		return ExecuteInHost(nil, "nc", append(args, c.Args().Slice()...)...)

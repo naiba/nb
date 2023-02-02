@@ -25,8 +25,8 @@ func (sa SSHAccount) GetPort() string {
 }
 
 type Proxy struct {
-	Host string
-	Port string
+	Socks string
+	Http  string
 }
 
 type Config struct {

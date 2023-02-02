@@ -3,6 +3,7 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"strings"
@@ -47,8 +48,9 @@ func GetGitSSHCommandEnv(user string, proxyName string) (*model.GitAccount, []st
 	if !exists {
 		return nil, nil, errors.New("proxy server not found: " + proxyName)
 	}
+	socksHost, socksPort, _ := net.SplitHostPort(server.Socks)
 	return &account, []string{
-		"GIT_SSH_COMMAND=ssh -i \"" + account.SSHPrikey + "\" -o ProxyCommand=\"nc -X 5 -x " + fmt.Sprintf("%s:%s", server.Host, server.Port) + " %h %p\" -o IdentitiesOnly=yes",
+		"GIT_SSH_COMMAND=ssh -i \"" + account.SSHPrikey + "\" -o ProxyCommand=\"nc -X 5 -x " + fmt.Sprintf("%s:%s", socksHost, socksPort) + " %h %p\" -o IdentitiesOnly=yes",
 	}, nil
 }
 

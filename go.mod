@@ -6,7 +6,7 @@ require (
 	github.com/dimiro1/banner v1.1.0
 	github.com/google/go-github/v47 v47.1.0
 	github.com/spf13/viper v1.15.0
-	github.com/urfave/cli/v2 v2.24.1
+	github.com/urfave/cli/v2 v2.24.2
 	golang.org/x/oauth2 v0.4.0
 )
 

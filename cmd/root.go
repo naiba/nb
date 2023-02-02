@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"net"
 	"os"
 
 	"github.com/naiba/nb/singleton"
@@ -51,7 +52,13 @@ var rootCmd = &cli.App{
 			if !exists {
 				return cli.Exit("proxy server not found: "+proxyName, 1)
 			}
-			env = append(env, "ALL_PROXY=socks5h://"+fmt.Sprintf("%s:%s", server.Host, server.Port))
+			socksHost, socksPort, _ := net.SplitHostPort(server.Socks)
+			env = append(env, fmt.Sprintf("all_proxy=socks5h://%s:%s", socksHost, socksPort))
+			if server.Http != "" {
+				httpHost, httpPort, _ := net.SplitHostPort(server.Http)
+				env = append(env, fmt.Sprintf("http_proxy=http://%s:%s", httpHost, httpPort))
+				env = append(env, fmt.Sprintf("https_proxy=http://%s:%s", httpHost, httpPort))
+			}
 		}
 
 		if len(args) > 1 {

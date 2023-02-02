@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"net"
 
 	"github.com/naiba/nb/singleton"
 	"github.com/urfave/cli/v2"
@@ -23,7 +24,8 @@ var sshCmd = &cli.Command{
 			if !exists {
 				return cli.Exit("proxy server not found: "+proxyName, 1)
 			}
-			args = append(args, "-o", "ProxyCommand=nc -X 5 -x "+fmt.Sprintf("%s:%s", server.Host, server.Port)+" %h %p")
+			socksHost, socksPort, _ := net.SplitHostPort(server.Socks)
+			args = append(args, "-o", "ProxyCommand=nc -X 5 -x "+fmt.Sprintf("%s:%s", socksHost, socksPort)+" %h %p")
 		}
 
 		sshServerName := c.String("ssh-server")

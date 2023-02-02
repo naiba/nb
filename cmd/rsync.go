@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"net"
 
 	"github.com/naiba/nb/singleton"
 	"github.com/urfave/cli/v2"
@@ -24,7 +25,8 @@ var rsyncCmd = &cli.Command{
 			if !exists {
 				return cli.Exit("proxy server not found: "+proxyName, 1)
 			}
-			proxyCommand = " -o ProxyCommand=\"nc -X 5 -x " + fmt.Sprintf("%s:%s", server.Host, server.Port) + " %h %p\""
+			socksHost, socksPort, _ := net.SplitHostPort(server.Socks)
+			proxyCommand = " -o ProxyCommand=\"nc -X 5 -x " + fmt.Sprintf("%s:%s", socksHost, socksPort) + " %h %p\""
 		}
 
 		var extArgs = c.Args().Slice()
