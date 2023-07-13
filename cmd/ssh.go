@@ -2,10 +2,15 @@ package cmd
 
 import (
 	"fmt"
+	"log"
 	"net"
+	"strings"
+	"sync"
 
+	"github.com/naiba/nb/model"
 	"github.com/naiba/nb/singleton"
 	"github.com/urfave/cli/v2"
+	"golang.org/x/crypto/ssh"
 )
 
 func init() {
@@ -13,8 +18,9 @@ func init() {
 }
 
 var sshCmd = &cli.Command{
-	Name:  "ssh",
-	Usage: "Enhanced ssh command.",
+	Name:        "ssh",
+	Usage:       "Enhanced ssh command.",
+	Subcommands: []*cli.Command{sshInsecureCmd},
 	Action: func(c *cli.Context) error {
 		var args []string
 
@@ -40,5 +46,37 @@ var sshCmd = &cli.Command{
 		}
 
 		return ExecuteInHost(nil, "ssh", append(args, c.Args().Slice()...)...)
+	},
+}
+
+var sshInsecureCmd = &cli.Command{
+	Name:    "insecure",
+	Aliases: []string{"in"},
+	Usage:   "Scan insecure ssh server.",
+	Action: func(c *cli.Context) error {
+		var wg sync.WaitGroup
+		wg.Add(len(singleton.Config.SSH))
+		for _, item := range singleton.Config.SSH {
+			go func(s model.SSHAccount) {
+				defer wg.Done()
+				config := &ssh.ClientConfig{
+					User: s.Login,
+					Auth: []ssh.AuthMethod{
+						ssh.Password("your_password"),
+					},
+					HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+				}
+				addr := fmt.Sprintf("%s:%s", s.Host, s.GetPort())
+				conn, err := ssh.Dial("tcp", addr, config)
+				if err == nil {
+					conn.Close()
+					log.Println("SSH Server:", addr, "is insecure")
+				} else if !strings.Contains(err.Error(), "attempted methods [none]") {
+					log.Println("SSH Server:", addr, "is insecure, ", err.Error())
+				}
+			}(item)
+		}
+		wg.Wait()
+		return nil
 	},
 }

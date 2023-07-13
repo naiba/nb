@@ -38,7 +38,7 @@ var rsyncCmd = &cli.Command{
 			if !exists {
 				return cli.Exit("ssh server not found: "+sshServerName, 1)
 			}
-			args = append(args, "-e", fmt.Sprintf("ssh -i %s -p %s%s", server.Prikey, server.Port, proxyCommand))
+			args = append(args, "-e", fmt.Sprintf("ssh -i %s -p %s%s", server.Prikey, server.GetPort(), proxyCommand))
 			if err := ReplaceRemotePath(extArgs, server); err != nil {
 				return err
 			}
