@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"runtime"
 	"strings"
 
 	"github.com/urfave/cli/v2"
@@ -16,6 +17,9 @@ var beepCmd = &cli.Command{
 	Usage:           "Beep when an command is finished.",
 	SkipFlagParsing: true,
 	Action: func(c *cli.Context) error {
-		return ExecuteLineInHost(strings.Join(c.Args().Slice(), " ") + " && echo -ne '\007'")
+		if runtime.GOOS != "darwin" {
+			return ExecuteLineInHost(strings.Join(c.Args().Slice(), " ") + " && echo -ne '\007'")
+		}
+		return ExecuteLineInHost(strings.Join(c.Args().Slice(), " ") + " && say Boom! Mission accomplished!")
 	},
 }
