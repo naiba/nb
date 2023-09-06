@@ -25,6 +25,7 @@ var githubCmd = &cli.Command{
 		githubCoauthoredByCommand,
 		githubPurgeArtifactsCommand,
 		githubPurgeReleaseCommand,
+		githubPuregeTagsCommand,
 	},
 }
 
@@ -223,6 +224,90 @@ var githubPurgeReleaseCommand = &cli.Command{
 			}
 			log.Printf("Done %s/%s", *repo.Owner.Login, *repo.Name)
 		}
+		return nil
+	},
+}
+
+var githubPuregeTagsCommand = &cli.Command{
+	Name:    "purge-tags",
+	Aliases: []string{"pt"},
+	Usage:   "Purge the tags of the user or organization.",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:    "access-token",
+			Aliases: []string{"t"},
+		},
+		&cli.StringFlag{
+			Name:    "user",
+			Aliases: []string{"u"},
+		},
+		&cli.StringSliceFlag{
+			Name:    "repository",
+			Aliases: []string{"r"},
+		},
+	},
+	Action: func(ctx *cli.Context) error {
+		ts := oauth2.StaticTokenSource(
+			&oauth2.Token{AccessToken: ctx.String("access-token")},
+		)
+		tc := oauth2.NewClient(ctx.Context, ts)
+		client := github.NewClient(tc)
+		var opts = &github.RepositoryListOptions{}
+
+		var allRepos []*github.Repository
+		for opts != nil {
+			repos, resp, err := client.Repositories.List(ctx.Context, "", opts)
+			if err != nil {
+				return err
+			}
+			if resp.NextPage > 0 {
+				opts.ListOptions.Page = resp.NextPage
+			} else {
+				opts = nil
+			}
+			allRepos = append(allRepos, repos...)
+		}
+
+		repositories := ctx.StringSlice("repository")
+		var repositoriesMap = make(map[string]bool)
+		for _, repository := range repositories {
+			repositoriesMap[strings.ToLower(repository)] = true
+		}
+
+		for _, repo := range allRepos {
+			repoName := fmt.Sprintf("%s/%s", *repo.Owner.Login, *repo.Name)
+			if !repositoriesMap[strings.ToLower(repoName)] {
+				continue
+			}
+			if !strings.EqualFold(*repo.Owner.Login, ctx.String("user")) {
+				continue
+			}
+			log.Printf("Processing %s/%s", *repo.Owner.Login, *repo.Name)
+
+			var opts = &github.ListOptions{}
+			var allTags []*github.RepositoryTag
+			for opts != nil {
+				tags, resp, err := client.Repositories.ListTags(ctx.Context, *repo.Owner.Login, *repo.Name, opts)
+				if err != nil {
+					return err
+				}
+				if resp.NextPage > 0 {
+					opts.Page = resp.NextPage
+				} else {
+					opts = nil
+				}
+				allTags = append(allTags, tags...)
+			}
+			log.Printf("Deleting %d tags", len(allTags))
+			for _, tag := range allTags {
+				_, err := client.Git.DeleteRef(ctx.Context, *repo.Owner.Login, *repo.Name, fmt.Sprintf("tags/%s", *tag.Name))
+				if err != nil {
+					return err
+				}
+			}
+			log.Printf("Done %s/%s", *repo.Owner.Login, *repo.Name)
+		}
+
 		return nil
 	},
 }
