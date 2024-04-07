@@ -5,9 +5,10 @@ import (
 )
 
 type GitAccount struct {
-	Name      string
-	Email     string
-	SSHPrikey string
+	Name       string
+	Email      string
+	SSHPrikey  string
+	SSHSignKey string
 }
 
 type SSHAccount struct {

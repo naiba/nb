@@ -45,7 +45,13 @@ var gitSetupCommand = &cli.Command{
 			}
 		} else {
 			_, command, _ := strings.Cut(env[0], "=")
-			if err := ExecuteLineInHost("git config --local core.sshCommand '" + command + "' && git config --local user.name " + account.Name + " && git config --local user.email " + account.Email); err != nil {
+			command = "git config --local core.sshCommand '" + command +
+				"' && git config --local user.name " + account.Name +
+				" && git config --local user.email " + account.Email
+			if account.SSHSignKey != "" {
+				command += " && git config --local gpg.format ssh && git config --local user.signingkey " + account.SSHSignKey
+			}
+			if err := ExecuteLineInHost(command); err != nil {
 				return err
 			}
 		}
@@ -105,6 +111,6 @@ var gitSalonCommand = &cli.Command{
 var gitWhoCommand = &cli.Command{
 	Name: "whoami",
 	Action: func(c *cli.Context) error {
-		return ExecuteLineInHost("git config --local --list|grep \"user.email\\|user.name\\|core.sshcommand\"")
+		return ExecuteLineInHost("git config --local --list|grep \"user.email\\|user.name\\|core.sshcommand\\|gpg.format\\|user.signingkey\"")
 	},
 }

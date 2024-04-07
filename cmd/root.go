@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/naiba/nb/singleton"
+
 	"github.com/urfave/cli/v2"
 )
 

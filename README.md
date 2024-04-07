@@ -8,16 +8,16 @@ Config file example [./nb.yaml](./nb.yaml)
 
 ```sh
 go install github.com/naiba/nb@latest
-# Append this line to your `.zshrc`
-alias nb="NB_CONFIG_PATH=/path-to-nb.yaml /path-to-go/bin/nb"
+nb # prepare config file to config path
 ```
 
 ## Usage
 
 ```sh
+# Load alias etc. can append to .profile/.zshrc
 source <(/path-to-go/bin/nb --config-path /path-to-nb.yaml print-snippet profile)
 
-# Print banner
+# Print banner, can append to .profile/.zshrc
 nb print-banner
 
 # Connecting to SSH server via socks proxy
