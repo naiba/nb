@@ -5,9 +5,10 @@ import (
 	"os"
 
 	"github.com/dimiro1/banner"
+	"github.com/urfave/cli/v2"
+
 	"github.com/naiba/nb/assets"
 	"github.com/naiba/nb/singleton"
-	"github.com/urfave/cli/v2"
 )
 
 func init() {

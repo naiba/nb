@@ -1,11 +1,11 @@
 package cmd
 
 import (
+	"os"
 	"runtime"
 	"strings"
 
 	"github.com/AppleGamer22/cocainate/session"
-
 	"github.com/urfave/cli/v2"
 )
 
@@ -45,7 +45,7 @@ var beepCmd = &cli.Command{
 	},
 }
 
-var s session.Session
+var s *session.Session
 
 var awakeCmd = &cli.Command{
 	Name:            "awake",
@@ -53,14 +53,16 @@ var awakeCmd = &cli.Command{
 	Usage:           "Awake during the command is running.",
 	SkipFlagParsing: true,
 	Before: func(c *cli.Context) error {
-		s = session.Session{}
+		s = session.New(0, os.Getppid())
 		return s.Start()
 	},
 	Action: func(c *cli.Context) error {
-		return ExecuteLineInHost(strings.Join(c.Args().Slice(), " "))
-	},
-	After: func(c *cli.Context) error {
-		return s.Stop()
+		retCmd := ExecuteLineInHost(strings.Join(c.Args().Slice(), " "))
+		retSession := s.Stop()
+		if retCmd != nil {
+			return retCmd
+		}
+		return retSession
 	},
 }
 
@@ -70,13 +72,15 @@ var awakeBeepCmd = &cli.Command{
 	Usage:           "Awake and beep when an command is finished.",
 	SkipFlagParsing: true,
 	Before: func(c *cli.Context) error {
-		s = session.Session{}
+		s = session.New(0, os.Getppid())
 		return s.Start()
 	},
 	Action: func(c *cli.Context) error {
-		return beepCmd.Action(c)
-	},
-	After: func(c *cli.Context) error {
-		return s.Stop()
+		retCmd := beepCmd.Action(c)
+		retSession := s.Stop()
+		if retCmd != nil {
+			return retCmd
+		}
+		return retSession
 	},
 }

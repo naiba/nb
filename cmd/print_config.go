@@ -3,8 +3,9 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/naiba/nb/singleton"
 	"github.com/urfave/cli/v2"
+
+	"github.com/naiba/nb/singleton"
 )
 
 func init() {

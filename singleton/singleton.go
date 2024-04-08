@@ -6,10 +6,6 @@ import (
 
 var Config *model.Config
 
-func init() {
-
-}
-
 func Init(confPath string) error {
 	var err error
 	Config, err = model.ReadInConfig(confPath)

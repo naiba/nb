@@ -7,10 +7,11 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/naiba/nb/model"
-	"github.com/naiba/nb/singleton"
 	"github.com/urfave/cli/v2"
 	"golang.org/x/crypto/ssh"
+
+	"github.com/naiba/nb/model"
+	"github.com/naiba/nb/singleton"
 )
 
 func init() {
