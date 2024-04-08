@@ -13,22 +13,23 @@ import (
 )
 
 func ExecuteInHost(env []string, name string, args ...string) error {
+	command := BuildCommand(env, name, args...)
+	return command.Run()
+}
+
+func BashScriptExecuteInHost(line string) error {
+	command := BuildCommand(nil, "bash", "-c", line)
+	return command.Run()
+}
+
+func BuildCommand(env []string, name string, args ...string) *exec.Cmd {
 	command := exec.Command(name, args...)
 	command.Env = append(command.Env, os.Environ()...)
 	command.Env = append(command.Env, env...)
 	command.Stdin = os.Stdin
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
-	return command.Run()
-}
-
-func ExecuteLineInHost(line string) error {
-	command := exec.Command("bash", "-c", line)
-	command.Env = append(command.Env, os.Environ()...)
-	command.Stdin = os.Stdin
-	command.Stdout = os.Stdout
-	command.Stderr = os.Stderr
-	return command.Run()
+	return command
 }
 
 func GetGitSSHCommandEnv(user string, proxyName string) (*model.GitAccount, []string, error) {

@@ -40,7 +40,7 @@ var gitSetupCommand = &cli.Command{
 			return cli.Exit(err.Error(), 1)
 		}
 		if account == nil {
-			if err := ExecuteLineInHost("git config --local --unset core.sshCommand && git config --local --unset user.name && git config --local --unset user.email"); err != nil {
+			if err := BashScriptExecuteInHost("git config --local --unset core.sshCommand && git config --local --unset user.name && git config --local --unset user.email"); err != nil {
 				return err
 			}
 		} else {
@@ -51,7 +51,7 @@ var gitSetupCommand = &cli.Command{
 			if account.SSHSignKey != "" {
 				command += " && git config --local gpg.format ssh && git config --local user.signingkey " + account.SSHSignKey
 			}
-			if err := ExecuteLineInHost(command); err != nil {
+			if err := BashScriptExecuteInHost(command); err != nil {
 				return err
 			}
 		}
@@ -104,13 +104,13 @@ var gitSalonCommand = &cli.Command{
 		args = append(args, "-gu "+c.String("git-user"))
 		args = append(args, "git setup")
 
-		return ExecuteLineInHost(strings.Join(args, " "))
+		return BashScriptExecuteInHost(strings.Join(args, " "))
 	},
 }
 
 var gitWhoCommand = &cli.Command{
 	Name: "whoami",
 	Action: func(c *cli.Context) error {
-		return ExecuteLineInHost("git config --local --list|grep \"user.email\\|user.name\\|core.sshcommand\\|gpg.format\\|user.signingkey\"")
+		return BashScriptExecuteInHost("git config --local --list|grep \"user.email\\|user.name\\|core.sshcommand\\|gpg.format\\|user.signingkey\"")
 	},
 }
