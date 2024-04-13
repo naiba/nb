@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"runtime"
 	"strings"
 
@@ -38,7 +39,7 @@ var beepCmd = &cli.Command{
 	Action: func(c *cli.Context) error {
 		errExec := BashScriptExecuteInHost(strings.Join(c.Args().Slice(), " "))
 		errBeep := BashScriptExecuteInHost(getBeepCommand())
-		return anyError(errExec, errBeep)
+		return errors.Join(errExec, errBeep)
 	},
 }
 
@@ -58,7 +59,7 @@ var awakeCmd = &cli.Command{
 		}
 		errExec := cmd.Wait()
 		errSessionStop := s.Stop()
-		return anyError(errExec, errSessionStop)
+		return errors.Join(errExec, errSessionStop)
 	},
 }
 
@@ -79,15 +80,6 @@ var awakeBeepCmd = &cli.Command{
 		errExec := cmd.Wait()
 		errSessionStop := s.Stop()
 		errBeep := BashScriptExecuteInHost(getBeepCommand())
-		return anyError(errExec, errSessionStop, errBeep)
+		return errors.Join(errExec, errSessionStop, errBeep)
 	},
-}
-
-func anyError(errors ...error) error {
-	for _, err := range errors {
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }
