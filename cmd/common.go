@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
 
 	"github.com/naiba/nb/model"
 	"github.com/naiba/nb/singleton"
@@ -24,6 +25,12 @@ func BashScriptExecuteInHost(line string) error {
 
 func BuildCommand(env []string, name string, args ...string) *exec.Cmd {
 	command := exec.Command(name, args...)
+	pid := os.Getpid()
+	gid, err := syscall.Getpgid(pid)
+	if err != nil {
+		panic(err)
+	}
+	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pgid: gid}
 	command.Env = append(command.Env, os.Environ()...)
 	command.Env = append(command.Env, env...)
 	command.Stdin = os.Stdin
