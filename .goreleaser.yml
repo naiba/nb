@@ -38,7 +38,9 @@ archives:
   - name_template: "nb_{{ .Os }}_{{ .Arch }}"
     format: zip
     files:
-      - none*
+      - nb.yaml
+      - README.md
+      - LICENSE
 changelog:
   sort: asc
   filters:
