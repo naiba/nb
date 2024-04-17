@@ -69,9 +69,6 @@ var rootCmd = &cli.App{
 	},
 }
 
-func Execute() {
-	if err := rootCmd.Run(os.Args); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
+func Execute() error {
+	return rootCmd.Run(os.Args)
 }
