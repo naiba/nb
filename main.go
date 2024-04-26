@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/naiba/nb/cmd"
@@ -14,24 +15,20 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-
-	var suicide bool
-
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
-
+	var killed atomic.Bool
+	signalChain := make(chan os.Signal, 1)
+	signal.Notify(signalChain, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
-		err = cmd.Execute()
-		suicide = true
-		syscall.Kill(-gid, syscall.SIGTERM)
+		<-signalChain
+		if killed.CompareAndSwap(false, true) {
+			syscall.Kill(-gid, syscall.SIGTERM)
+		}
 	}()
-
-	<-stop
-	if !suicide {
+	err = cmd.Execute()
+	if killed.CompareAndSwap(false, true) {
 		syscall.Kill(-gid, syscall.SIGTERM)
 	}
 	if err != nil {
 		os.Exit(1)
 	}
-	os.Exit(0)
 }
