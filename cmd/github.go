@@ -18,9 +18,8 @@ func init() {
 }
 
 var githubCmd = &cli.Command{
-	Name:            "gh",
-	Usage:           "GitHub helpers.",
-	SkipFlagParsing: true,
+	Name:  "github",
+	Usage: "GitHub helpers.",
 	Subcommands: []*cli.Command{
 		githubCoauthoredByCommand,
 		githubPurgeArtifactsCommand,

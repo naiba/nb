@@ -14,9 +14,8 @@ func init() {
 }
 
 var runCmd = &cli.Command{
-	Name:    "run",
-	Aliases: []string{"r"},
-	Usage:   "Commands run helper.",
+	Name:  "run",
+	Usage: "Commands run helper.",
 	Subcommands: []*cli.Command{
 		awakeCmd,
 		beepCmd,
