@@ -4,7 +4,7 @@
 
 ## Installation
 
-Config file example [./nb.yaml](./nb.yaml)
+Config file example [./nb.yaml](./nb.yaml), put it to `~/.config/nb.yaml`.
 
 ```sh
 go install github.com/naiba/nb@latest
@@ -14,11 +14,14 @@ nb # prepare config file to config path
 ## Usage
 
 ```sh
-# Load alias etc. can append to .profile/.zshrc
-source <(/path-to-go/bin/nb --config-path /path-to-nb.yaml print-snippet profile)
-
 # Print banner, can append to .profile/.zshrc
 nb print-banner
+
+# Cloudflate Batch DNS Record Management GUI
+nb cloudflare
+
+# Load alias etc. can append to .profile/.zshrc
+source <(/path-to-go/bin/nb print-snippet profile)
 
 # Connecting to SSH server via socks proxy
 nb -p rpi-socks -ss github ssh

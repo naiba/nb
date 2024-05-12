@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cloudflare Helper</title>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.11.1/dist/full.min.css" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <style>
+        body,
+        html {
+            height: 100%;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="app" class="max-w-4xl mx-auto h-full">
+        <div v-if="!zones" class="flex flex-col items-center h-full justify-center">
+            <form @submit.prevent="checkApiToken">
+                <label class="form-control w-full">
+                    <div class="label">
+                        <span class="label-text">Cloudflare API Token</span>
+                    </div>
+                    <input type="text" v-model="apiToken" placeholder="icMMGmex-asmkVMDaskk"
+                        class="input input-bordered w-full" />
+                </label>
+                <button type="submit" class="btn min-w-96 mt-2">Continue</button>
+            </form>
+        </div>
+        <div v-else>
+            <div class="mt-2">
+                <div role="tablist" class="tabs tabs-lifted">
+                    <input type="radio" name="my_tabs_2" role="tab" class="tab min-w-max" aria-label="Zone Records"
+                        checked />
+                    <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6">
+                        <div class="grid grid-cols-2 gap-2">
+                            <button class="btn btn-sm" :disabled="!hasSelectedZone || loadDNSRecordsLoading"
+                                @click="loadDNSRecords">
+                                <span v-if="loadDNSRecordsLoading" class="loading loading-spinner"></span>
+                                Load Selected Zone's DNS Records
+                            </button>
+                            <button class="btn btn-sm" :disabled="!hasSelectedZone || loadPageRulesLoading"
+                                @click="loadPageRules">
+                                <span v-if="loadPageRulesLoading" class="loading loading-spinner"></span>
+                                Load Selected Zone's Page Rules
+                            </button>
+                            <button class="btn btn-sm" :disabled="!hasSelectedRecord || deleteDNSRecordsLoading"
+                                @click="deleteDNSRecords">
+                                <span v-if="deleteDNSRecordsLoading" class="loading loading-spinner"></span>
+                                Delete Selected DNS Records
+                            </button>
+                            <button class="btn btn-sm" :disabled="!hasSelectedPageRule || deletePageRulesLoading"
+                                @click="deletePageRules">
+                                <span v-if="deletePageRulesLoading" class="loading loading-spinner"></span>
+                                Delete Selected Page Rules
+                            </button>
+                        </div>
+                    </div>
+
+                    <input type="radio" name="my_tabs_2" role="tab" class="tab min-w-max"
+                        aria-label="Bath Create DNS Record" />
+                    <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6">
+                        <label class="form-control">
+                            <div class="label">
+                                <span class="label-text">Name</span>
+                            </div>
+                            <input v-model="newDNSRecord.name" type="text" placeholder="@.example.com"
+                                class="input input-bordered" />
+                        </label>
+                        <label class="form-control">
+                            <div class="label">
+                                <span class="label-text">Type</span>
+                            </div>
+                            <select v-model="newDNSRecord.type" class="select select-bordered">
+                                <option>A</option>
+                                <option>AAAA</option>
+                                <option>CNAME</option>
+                                <option>TXT</option>
+                                <option>MX</option>
+                            </select>
+                        </label>
+                        <label class="form-control">
+                            <div class="label">
+                                <span class="label-text">Content</span>
+                            </div>
+                            <input v-model="newDNSRecord.content" type="text" placeholder="1.1.1.1"
+                                class="input input-bordered" />
+                        </label>
+                        <label class="form-control">
+                            <div class="label">
+                                <span class="label-text">TTL</span>
+                            </div>
+                            <input v-model="newDNSRecord.ttl" type="number" class="input input-bordered" />
+                        </label>
+                        <div class="form-control">
+                            <label class="label cursor-pointer">
+                                <span class="label-text">Proxied</span>
+                                <input v-model="newDNSRecord.proxied" type="checkbox" class="toggle" checked />
+                            </label>
+                        </div>
+                        <button class="btn btn-sm" :disabled="!hasSelectedZone || batchCreateDNSRecordLoading"
+                            @click="batchCreateDNSRecord">
+                            <span v-if="batchCreateDNSRecordLoading" class="loading loading-spinner"></span>
+                            Batch Create
+                        </button>
+                        <p class="mt-2">
+                            <i>* <code>#DOMAIN#</code> in content or name will be replaced with the domain name. eg.
+                                <code>example.com</code></i><br>
+                            <i>* <code>#DOMAIN.SUFFIX#</code> in content or name will be replaced with the domain
+                                name without the first part. eg. <code>com</code></i><br>
+                            <i>* <code>#DOMAIN.PREFIX#</code> in content or name will be replaced with the domain
+                                name
+                                without the last part. eg. <code>example</code></i>
+                        </p>
+                    </div>
+
+                    <input type="radio" name="my_tabs_2" role="tab" class="tab min-w-max"
+                        aria-label="Batch Create PageRule" />
+                    <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6">
+                        <label class="form-control">
+                            <div class="label">
+                                <span class="label-text">Actions</span>
+                            </div>
+                            <textarea v-model="newPageRule.actions" type="text"class="textarea textarea-bordered"></textarea>
+                        </label>
+                        <label class="form-control">
+                            <div class="label">
+                                <span class="label-text">Targets</span>
+                            </div>
+                            <textarea v-model="newPageRule.targets" type="text"class="textarea textarea-bordered"></textarea>
+                        </label>
+                        <label class="form-control">
+                            <div class="label">
+                                <span class="label-text">Priority</span>
+                            </div>
+                            <input v-model="newPageRule.priority" type="number" class="input input-bordered" />
+                        </label>
+                        <button class="btn btn-sm mt-2" :disabled="!hasSelectedZone || batchCreatePageRuleLoading"
+                            @click="batchCreatePageRule">
+                            <span v-if="batchCreatePageRuleLoading" class="loading loading-spinner"></span>
+                            Batch Create
+                        </button>
+                        <p class="mt-2">
+                            <i>* <code>#DOMAIN#</code> in content or name will be replaced with the domain name. eg.
+                                <code>example.com</code></i><br>
+                            <i>* <code>#DOMAIN.SUFFIX#</code> in content or name will be replaced with the domain
+                                name without the first part. eg. <code>com</code></i><br>
+                            <i>* <code>#DOMAIN.PREFIX#</code> in content or name will be replaced with the domain
+                                name
+                                without the last part. eg. <code>example</code></i>
+                        </p>
+                    </div>
+                </div>
+            </div>
+            <div class="overflow-x-scroll mt-2">
+                <table class="table table-xs">
+                    <thead>
+                        <tr>
+                            <th>
+                                <input type="checkbox" class="checkbox checkbox-xs" :checked="selectedAll"
+                                    @click="toggleSelectAll" />
+                                <input type="checkbox" class="ml-2 checkbox checkbox-xs" :checked="selectedAllRecords"
+                                    @click="toggleSelectAllRecords" />
+                                <input type="checkbox" class="ml-2 checkbox checkbox-xs" :checked="selectedAllPageRules"
+                                    @click="toggleSelectAllPageRules" />
+                            </th>
+                            <th>Name</th>
+                            <th>Status</th>
+                            <th>Page Rule Quota</th>
+                            <th>Phishing Detected</th>
+                            <th>Wildcard Proxiable</th>
+                            <th>Modifie On</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template v-for="(zone,index) in zones" :key="zone.id">
+                            <tr>
+                                <th>
+                                    <input type="checkbox" class="checkbox checkbox-xs" :checked="zone.selected"
+                                        @click="toggleSelect(index)" />
+                                </th>
+                                <td>{{ zone.name }}</td>
+                                <td>{{ zone.status }}</td>
+                                <td>{{ zone.meta.page_rule_quota }}</td>
+                                <td>{{ zone.meta.phishing_detected }}</td>
+                                <td>{{ zone.meta.wildcard_proxiable }}</td>
+                                <td>{{ zone.modified_on }}</td>
+                            </tr>
+                            <tr class="bg-base-200" v-for="(record,rIndex) in dnsRecords[zone.id]" :key="record.id">
+                                <th>
+                                    <input type="checkbox" class="ml-6 checkbox checkbox-xs" :checked="record.selected"
+                                        @click="toggleSelectRecord(zone.id,rIndex)" />
+                                </th>
+                                <td>
+                                    <div class="badge badge-sm badge-primary badge-outline">DNS</div>
+                                </td>
+                                <td>{{ record.name }}</td>
+                                <td>
+                                    <div class="badge badge-sm badge-outline">{{ record.type }}</div>
+                                </td>
+                                <td class="max-w-40 text-ellipsis overflow-hidden">{{ record.content }}</td>
+                                <td></td>
+                                <td></td>
+                            </tr>
+                            <tr class="bg-primary-200" v-for="(pageRule,pIndex) in pageRules[zone.id]"
+                                :key="pageRule.id">
+                                <th>
+                                    <input type="checkbox" class="ml-12 checkbox checkbox-xs"
+                                        :checked="pageRule.selected" @click="toggleSelectPageRule(zone.id,pIndex)" />
+                                </th>
+                                <td>
+                                    <div class="badge badge-sm badge-primary badge-outline">PageRule</div>
+                                </td>
+                                <td>{{ pageRule.actions }}</td>
+                                <td>
+                                </td>
+                                <td class="max-w-40 text-ellipsis overflow-hidden">{{ pageRule.targets }}</td>
+                                <td></td>
+                                <td></td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <script>
+        const { createApp, ref, computed } = Vue
+        createApp({
+            setup() {
+                const selectedAll = ref(false)
+                const selectedAllRecords = ref(false)
+                const selectedAllPageRules = ref(false)
+                const deleteDNSRecordsLoading = ref(false)
+                const deletePageRulesLoading = ref(false)
+                const loadDNSRecordsLoading = ref(false)
+                const loadPageRulesLoading = ref(false)
+                const zones = ref(null)
+                const dnsRecords = ref({})
+                const pageRules = ref({})
+                const apiToken = ref(null)
+                const newDNSRecord = ref({
+                    type: 'A',
+                    ttl: 1,
+                })
+                const newPageRule = ref({
+                    actions: '[{"id":"forwarding_url","value":{"status_code":302,"url":"https://bigtoyscompany.com/assets/5.nu?utm_source=5.nu"}}]',
+                    targets: '[{"target":"url","constraint":{"operator":"matches","value":"5.nu/*"}}]',
+                    priority: 1,
+                })
+                const batchCreateDNSRecordLoading = ref(false)
+                const batchCreatePageRuleLoading = ref(false)
+
+                const hasSelectedZone = computed(() => zones.value && zones.value.some(zone => zone.selected))
+                const hasSelectedRecord = computed(() => Object.values(dnsRecords.value).some(records => records.some(record => record.selected)))
+                const hasSelectedPageRule = computed(() => Object.values(pageRules.value).some(records => records.some(record => record.selected)))
+
+                fetch('/state').then(async response => {
+                    if (response.ok) {
+                        const data = await response.json()
+                        apiToken.value = data.token
+                        zones.value = data.zones
+                        dnsRecords.value = data.dnsRecords
+                        pageRules.value = data.pageRules
+                    }
+                })
+
+                const checkApiToken = () => {
+                    const data = new URLSearchParams()
+                    data.append('token', apiToken.value)
+                    fetch('/check-token', {
+                        method: 'POST',
+                        body: data,
+                        headers: {
+                            'content-type': 'application/x-www-form-urlencoded'
+                        }
+                    }).then(async response => {
+                        if (!response.ok) {
+                            alert(await response.text())
+                            return
+                        }
+                        zones.value = (await response.json()).zones
+                    })
+                }
+
+                const toggleSelectAll = () => {
+                    selectedAll.value = !selectedAll.value
+                    zones.value.forEach(zone => zone.selected = selectedAll.value)
+                }
+
+                const toggleSelectAllRecords = () => {
+                    selectedAllRecords.value = !selectedAllRecords.value
+                    Object.values(dnsRecords.value).forEach(records => records.forEach(record => record.selected = selectedAllRecords.value))
+                }
+
+                const toggleSelectAllPageRules = () => {
+                    selectedAllPageRules.value = !selectedAllPageRules.value
+                    Object.values(pageRules.value).forEach(records => records.forEach(record => record.selected = selectedAllPageRules.value))
+                }
+
+                const toggleSelect = (index) => {
+                    zones.value[index].selected = !zones.value[index].selected
+                    selectedAll.value = zones.value.every(zone => zone.selected)
+                }
+
+                const toggleSelectRecord = (zoneId, rIndex) => {
+                    dnsRecords.value[zoneId][rIndex].selected = !dnsRecords.value[zoneId][rIndex].selected
+                    selectedAllRecords.value = Object.values(dnsRecords.value).every(records => records.every(record => record.selected))
+                }
+
+                const toggleSelectPageRule = (zoneId, rIndex) => {
+                    pageRules.value[zoneId][rIndex].selected = !pageRules.value[zoneId][rIndex].selected
+                    selectedAllPageRules.value = Object.values(pageRules.value).every(records => records.every(record => record.selected))
+                }
+
+                const loadPageRules = (zone) => {
+                    loadPageRulesLoading.value = true
+                    fetch(`/load-zone-page-rules`, {
+                        method: 'POST',
+                        body: JSON.stringify(zones.value.filter(zone => zone.selected).map(zone => zone.id)),
+                    }).then(async response => {
+                        if (!response.ok) {
+                            alert(await response.text())
+                            return
+                        }
+                        pageRules.value = await response.json()
+                    }).finally(() => {
+                        loadPageRulesLoading.value = false
+                    })
+                }
+
+                const loadDNSRecords = (zone) => {
+                    loadDNSRecordsLoading.value = true
+                    fetch(`/load-zone-records`, {
+                        method: 'POST',
+                        body: JSON.stringify(zones.value.filter(zone => zone.selected).map(zone => zone.id)),
+                    }).then(async response => {
+                        if (!response.ok) {
+                            alert(await response.text())
+                            return
+                        }
+                        dnsRecords.value = await response.json()
+                    }).finally(() => {
+                        loadDNSRecordsLoading.value = false
+                    })
+                }
+
+                const deleteDNSRecords = () => {
+                    deleteDNSRecordsLoading.value = true
+                    const data = {}
+                    Object.entries(dnsRecords.value).forEach(([zoneId, records]) => {
+                        data[zoneId] = records.filter(record => record.selected).map(record => record.id)
+                    })
+                    Object.entries(data).forEach(([zoneId, records]) => {
+                        if (records.length === 0) {
+                            delete data[zoneId]
+                        }
+                    })
+                    fetch('/delete-dns-records', {
+                        method: 'POST',
+                        body: JSON.stringify(data),
+                    }).then(async response => {
+                        if (!response.ok) {
+                            alert(await response.text())
+                            return
+                        }
+                        alert('Purge DNS Records success, please reload DNS Records to see the changes.')
+                    }).finally(() => {
+                        deleteDNSRecordsLoading.value = false
+                    })
+                }
+
+                const deletePageRules = () => {
+                    deletePageRulesLoading.value = true
+                    const data = {}
+                    Object.entries(pageRules.value).forEach(([zoneId, records]) => {
+                        data[zoneId] = records.filter(record => record.selected).map(record => record.id)
+                    })
+                    Object.entries(data).forEach(([zoneId, records]) => {
+                        if (records.length === 0) {
+                            delete data[zoneId]
+                        }
+                    })
+                    fetch('/delete-page-rules', {
+                        method: 'POST',
+                        body: JSON.stringify(data),
+                    }).then(async response => {
+                        if (!response.ok) {
+                            alert(await response.text())
+                            return
+                        }
+                        alert('Purge Page Rules success, please reload Page Rules to see the changes.')
+                    }).finally(() => {
+                        deletePageRulesLoading.value = false
+                    })
+                }
+
+                const batchCreateDNSRecord = () => {
+                    batchCreateDNSRecordLoading.value = true
+                    fetch('/batch-create-dns-record', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            zones: zones.value.filter(zone => zone.selected).map(zone => zone.id),
+                            record: newDNSRecord.value
+                        }),
+                    }).then(async response => {
+                        if (!response.ok) {
+                            alert(await response.text())
+                            return
+                        }
+                        alert('Create DNS Records success, please reload DNS Records to see the changes.')
+                    }).finally(() => {
+                        batchCreateDNSRecordLoading.value = false
+                    })
+                }
+
+                const batchCreatePageRule = () => {
+                    batchCreatePageRuleLoading.value = true
+                    fetch('/batch-create-page-rule', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            zones: zones.value.filter(zone => zone.selected).map(zone => zone.id),
+                            rule: {
+                                actions: newPageRule.value.actions,
+                                targets: newPageRule.value.targets,
+                                priority: newPageRule.value.priority,
+                            }
+                        }),
+                    }).then(async response => {
+                        if (!response.ok) {
+                            alert(await response.text())
+                            return
+                        }
+                        alert('Create Page Rules success, please reload PageRules to see the changes.')
+                    }).finally(() => {
+                        batchCreatePageRuleLoading.value = false
+                    })
+                }
+
+                return {
+                    checkApiToken,
+                    zones,
+                    apiToken,
+                    selectedAll,
+                    toggleSelectAll,
+                    toggleSelect,
+                    hasSelectedZone,
+                    deleteDNSRecords,
+                    deleteDNSRecordsLoading,
+                    dnsRecords,
+                    loadDNSRecords,
+                    loadDNSRecordsLoading,
+                    toggleSelectAllRecords,
+                    selectedAllRecords,
+                    hasSelectedRecord,
+                    newDNSRecord,
+                    batchCreateDNSRecord,
+                    batchCreateDNSRecordLoading,
+                    toggleSelectRecord,
+                    pageRules,
+                    loadPageRules,
+                    loadPageRulesLoading,
+                    selectedAllPageRules,
+                    toggleSelectAllPageRules,
+                    toggleSelectPageRule,
+                    deletePageRules,
+                    deletePageRulesLoading,
+                    hasSelectedPageRule,
+                    newPageRule,
+                    batchCreatePageRule,
+                    batchCreatePageRuleLoading,
+                }
+            }
+        }).mount('#app')
+    </script>
+</body>
+
+</html>

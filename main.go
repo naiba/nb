@@ -1,7 +1,6 @@
 package main
 
 import (
-	"log"
 	"os"
 	"os/signal"
 	"sync/atomic"
@@ -16,7 +15,6 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	log.Printf("PID: %d, GID: %d", pid, gid)
 	var killed atomic.Bool
 	signalChain := make(chan os.Signal, 1)
 	signal.Notify(signalChain, syscall.SIGINT, syscall.SIGTERM)
