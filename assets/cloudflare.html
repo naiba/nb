@@ -42,21 +42,35 @@
                                 <span v-if="loadDNSRecordsLoading" class="loading loading-spinner"></span>
                                 Load Selected Zone's DNS Records
                             </button>
-                            <button class="btn btn-sm" :disabled="!hasSelectedZone || loadPageRulesLoading"
-                                @click="loadPageRules">
-                                <span v-if="loadPageRulesLoading" class="loading loading-spinner"></span>
-                                Load Selected Zone's Page Rules
-                            </button>
                             <button class="btn btn-sm" :disabled="!hasSelectedRecord || deleteDNSRecordsLoading"
                                 @click="deleteDNSRecords">
                                 <span v-if="deleteDNSRecordsLoading" class="loading loading-spinner"></span>
                                 Delete Selected DNS Records
+                            </button>
+                            <button class="btn btn-sm" :disabled="!hasSelectedZone || loadPageRulesLoading"
+                                @click="loadPageRules">
+                                <span v-if="loadPageRulesLoading" class="loading loading-spinner"></span>
+                                Load Selected Zone's Page Rules
                             </button>
                             <button class="btn btn-sm" :disabled="!hasSelectedPageRule || deletePageRulesLoading"
                                 @click="deletePageRules">
                                 <span v-if="deletePageRulesLoading" class="loading loading-spinner"></span>
                                 Delete Selected Page Rules
                             </button>
+                            <button class="btn btn-sm" :disabled="!hasSelectedZone || loadRulesetsLoading"
+                                @click="loadRulesets">
+                                <span v-if="loadRulesetsLoading" class="loading loading-spinner"></span>
+                                Load Selected Zone's Rulesets
+                            </button>
+                            <button class="btn btn-sm" :disabled="!hasSelectedRulesets || deleteRulesetsLoading"
+                                @click="deleteRulesets">
+                                <span v-if="deleteRulesetsLoading" class="loading loading-spinner"></span>
+                                Delete Selected Ruleset
+                            </button>
+                            <p class="mt-2 text-sm">
+                                Permissions Required: Zone_DNS, Account_AccountRulesets,
+                                Zone_DynamicRedirect, Zone_PageRules
+                            </p>
                         </div>
                     </div>
 
@@ -67,7 +81,7 @@
                             <div class="label">
                                 <span class="label-text">Name</span>
                             </div>
-                            <input v-model="newDNSRecord.name" type="text" placeholder="@.example.com"
+                            <input v-model="newDNSRecord.name" type="text" placeholder="@"
                                 class="input input-bordered" />
                         </label>
                         <label class="form-control">
@@ -106,7 +120,7 @@
                             <span v-if="batchCreateDNSRecordLoading" class="loading loading-spinner"></span>
                             Batch Create
                         </button>
-                        <p class="mt-2">
+                        <p class="mt-2 text-sm">
                             <i>* <code>#DOMAIN#</code> in content or name will be replaced with the domain name. eg.
                                 <code>example.com</code></i><br>
                             <i>* <code>#DOMAIN.SUFFIX#</code> in content or name will be replaced with the domain
@@ -124,13 +138,15 @@
                             <div class="label">
                                 <span class="label-text">Actions</span>
                             </div>
-                            <textarea v-model="newPageRule.actions" type="text"class="textarea textarea-bordered"></textarea>
+                            <textarea v-model="newPageRule.actions" type="text"
+                                class="textarea textarea-bordered"></textarea>
                         </label>
                         <label class="form-control">
                             <div class="label">
                                 <span class="label-text">Targets</span>
                             </div>
-                            <textarea v-model="newPageRule.targets" type="text"class="textarea textarea-bordered"></textarea>
+                            <textarea v-model="newPageRule.targets" type="text"
+                                class="textarea textarea-bordered"></textarea>
                         </label>
                         <label class="form-control">
                             <div class="label">
@@ -143,12 +159,33 @@
                             <span v-if="batchCreatePageRuleLoading" class="loading loading-spinner"></span>
                             Batch Create
                         </button>
-                        <p class="mt-2">
+                        <p class="mt-2 text-sm">
                             <i>* <code>#DOMAIN#</code> in content or name will be replaced with the domain name. eg.
                                 <code>example.com</code></i><br>
                             <i>* <code>#DOMAIN.SUFFIX#</code> in content or name will be replaced with the domain
                                 name without the first part. eg. <code>com</code></i><br>
                             <i>* <code>#DOMAIN.PREFIX#</code> in content or name will be replaced with the domain
+                                name
+                                without the last part. eg. <code>example</code></i>
+                        </p>
+                    </div>
+
+                    <input type="radio" name="my_tabs_2" role="tab" class="tab min-w-max"
+                        aria-label="Batch Create Ruleset" />
+                    <div role="tabpanel" class="tab-content bg-base-100 border-base-300 rounded-box p-6">
+                        <textarea v-model="newRuleset" type="text"
+                            class="textarea textarea-bordered block w-full"></textarea>
+                        <button class="btn btn-sm mt-2" :disabled="!hasSelectedZone || batchCreateRulesetLoading"
+                            @click="batchCreateRuleset">
+                            <span v-if="batchCreateRulesetLoading" class="loading loading-spinner"></span>
+                            Batch Create
+                        </button>
+                        <p class="mt-2 text-sm">
+                            <i>* <code>#DOMAIN#</code> in content will be replaced with the domain name. eg.
+                                <code>example.com</code></i><br>
+                            <i>* <code>#DOMAIN.SUFFIX#</code> in content will be replaced with the domain
+                                name without the first part. eg. <code>com</code></i><br>
+                            <i>* <code>#DOMAIN.PREFIX#</code> in content will be replaced with the domain
                                 name
                                 without the last part. eg. <code>example</code></i>
                         </p>
@@ -166,6 +203,8 @@
                                     @click="toggleSelectAllRecords" />
                                 <input type="checkbox" class="ml-2 checkbox checkbox-xs" :checked="selectedAllPageRules"
                                     @click="toggleSelectAllPageRules" />
+                                <input type="checkbox" class="ml-2 checkbox checkbox-xs" :checked="selectedAllRulesets"
+                                    @click="toggleSelectAllRulesets" />
                             </th>
                             <th>Name</th>
                             <th>Status</th>
@@ -221,6 +260,21 @@
                                 <td></td>
                                 <td></td>
                             </tr>
+                            <tr class="bg-primary-200" v-for="(ruleset,sIndex) in rulesets[zone.id]" :key="ruleset.id">
+                                <th>
+                                    <input type="checkbox" class="ml-[4.5rem] checkbox checkbox-xs"
+                                        :checked="ruleset.selected" @click="toggleSelectRuleset(zone.id,sIndex)" />
+                                </th>
+                                <td>
+                                    <div class="badge badge-sm badge-info badge-outline">Ruleset</div>
+                                </td>
+                                <td>{{ ruleset.kind }}</td>
+                                <td>
+                                </td>
+                                <td class="max-w-40 text-ellipsis overflow-hidden">{{ ruleset.phase }}</td>
+                                <td></td>
+                                <td></td>
+                            </tr>
                         </template>
                     </tbody>
                 </table>
@@ -234,29 +288,36 @@
                 const selectedAll = ref(false)
                 const selectedAllRecords = ref(false)
                 const selectedAllPageRules = ref(false)
+                const selectedAllRulesets = ref(false)
                 const deleteDNSRecordsLoading = ref(false)
                 const deletePageRulesLoading = ref(false)
+                const deleteRulesetsLoading = ref(false)
                 const loadDNSRecordsLoading = ref(false)
                 const loadPageRulesLoading = ref(false)
+                const loadRulesetsLoading = ref(false)
                 const zones = ref(null)
                 const dnsRecords = ref({})
                 const pageRules = ref({})
+                const rulesets = ref({})
                 const apiToken = ref(null)
                 const newDNSRecord = ref({
                     type: 'A',
                     ttl: 1,
                 })
                 const newPageRule = ref({
-                    actions: '[{"id":"forwarding_url","value":{"status_code":302,"url":"https://bigtoyscompany.com/assets/5.nu?utm_source=5.nu"}}]',
-                    targets: '[{"target":"url","constraint":{"operator":"matches","value":"5.nu/*"}}]',
+                    actions: '[{"id":"forwarding_url","value":{"status_code":302,"url":"https://example.com/assets/#DOMAIN#?utm_source#DOMAIN#"}}]',
+                    targets: '[{"target":"url","constraint":{"operator":"matches","value":"#DOMAIN#/*"}}]',
                     priority: 1,
                 })
+                const newRuleset = ref('{"name":"Domain Portfolio","kind":"zone","phase":"http_request_dynamic_redirect","description":"domain_portfolio","rules":[{"action":"redirect","action_parameters":{"from_value":{"status_code":302,"target_url":{"value":"https://example.com/assets/#DOMAIN#?utm_source=#DOMAIN#"},"preserve_query_string":false}},"description":"domain_portfolio","expression":"true","enabled":true}]}')
                 const batchCreateDNSRecordLoading = ref(false)
                 const batchCreatePageRuleLoading = ref(false)
+                const batchCreateRulesetLoading = ref(false)
 
                 const hasSelectedZone = computed(() => zones.value && zones.value.some(zone => zone.selected))
                 const hasSelectedRecord = computed(() => Object.values(dnsRecords.value).some(records => records.some(record => record.selected)))
                 const hasSelectedPageRule = computed(() => Object.values(pageRules.value).some(records => records.some(record => record.selected)))
+                const hasSelectedRulesets = computed(() => Object.values(rulesets.value).some(records => records.some(record => record.selected)))
 
                 fetch('/state').then(async response => {
                     if (response.ok) {
@@ -265,6 +326,7 @@
                         zones.value = data.zones
                         dnsRecords.value = data.dnsRecords
                         pageRules.value = data.pageRules
+                        rulesets.value = data.rulesets
                     }
                 })
 
@@ -301,6 +363,11 @@
                     Object.values(pageRules.value).forEach(records => records.forEach(record => record.selected = selectedAllPageRules.value))
                 }
 
+                const toggleSelectAllRulesets = () => {
+                    selectedAllRulesets.value = !selectedAllRulesets.value
+                    Object.values(rulesets.value).forEach(records => records.forEach(record => record.selected = selectedAllRulesets.value))
+                }
+
                 const toggleSelect = (index) => {
                     zones.value[index].selected = !zones.value[index].selected
                     selectedAll.value = zones.value.every(zone => zone.selected)
@@ -314,6 +381,11 @@
                 const toggleSelectPageRule = (zoneId, rIndex) => {
                     pageRules.value[zoneId][rIndex].selected = !pageRules.value[zoneId][rIndex].selected
                     selectedAllPageRules.value = Object.values(pageRules.value).every(records => records.every(record => record.selected))
+                }
+
+                const toggleSelectRuleset = (zoneId, rIndex) => {
+                    rulesets.value[zoneId][rIndex].selected = !rulesets.value[zoneId][rIndex].selected
+                    selectedAllRulesets.value = Object.values(rulesets.value).every(records => records.every(record => record.selected))
                 }
 
                 const loadPageRules = (zone) => {
@@ -345,6 +417,22 @@
                         dnsRecords.value = await response.json()
                     }).finally(() => {
                         loadDNSRecordsLoading.value = false
+                    })
+                }
+
+                const loadRulesets = (zone) => {
+                    loadRulesetsLoading.value = true
+                    fetch(`/load-zone-rulesets`, {
+                        method: 'POST',
+                        body: JSON.stringify(zones.value.filter(zone => zone.selected).map(zone => zone.id)),
+                    }).then(async response => {
+                        if (!response.ok) {
+                            alert(await response.text())
+                            return
+                        }
+                        rulesets.value = await response.json()
+                    }).finally(() => {
+                        loadRulesetsLoading.value = false
                     })
                 }
 
@@ -398,6 +486,31 @@
                     })
                 }
 
+                const deleteRulesets = () => {
+                    deleteRulesetsLoading.value = true
+                    const data = {}
+                    Object.entries(rulesets.value).forEach(([zoneId, records]) => {
+                        data[zoneId] = records.filter(record => record.selected).map(record => record.id)
+                    })
+                    Object.entries(data).forEach(([zoneId, records]) => {
+                        if (records.length === 0) {
+                            delete data[zoneId]
+                        }
+                    })
+                    fetch('/delete-rulesets', {
+                        method: 'POST',
+                        body: JSON.stringify(data),
+                    }).then(async response => {
+                        if (!response.ok) {
+                            alert(await response.text())
+                            return
+                        }
+                        alert('Purge Rulesets success, please reload Rulesets to see the changes.')
+                    }).finally(() => {
+                        deleteRulesetsLoading.value = false
+                    })
+                }
+
                 const batchCreateDNSRecord = () => {
                     batchCreateDNSRecordLoading.value = true
                     fetch('/batch-create-dns-record', {
@@ -440,6 +553,25 @@
                     })
                 }
 
+                const batchCreateRuleset = () => {
+                    batchCreateRulesetLoading.value = true
+                    fetch('/batch-create-ruleset', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            zones: zones.value.filter(zone => zone.selected).map(zone => zone.id),
+                            ruleset: newRuleset.value
+                        }),
+                    }).then(async response => {
+                        if (!response.ok) {
+                            alert(await response.text())
+                            return
+                        }
+                        alert('Create Rulesets success, please reload Rulesets to see the changes.')
+                    }).finally(() => {
+                        batchCreateRulesetLoading.value = false
+                    })
+                }
+
                 return {
                     checkApiToken,
                     zones,
@@ -472,6 +604,18 @@
                     newPageRule,
                     batchCreatePageRule,
                     batchCreatePageRuleLoading,
+                    rulesets,
+                    loadRulesets,
+                    loadRulesetsLoading,
+                    selectedAllRulesets,
+                    toggleSelectAllRulesets,
+                    toggleSelectRuleset,
+                    deleteRulesets,
+                    deleteRulesetsLoading,
+                    hasSelectedRulesets,
+                    newRuleset,
+                    batchCreateRuleset,
+                    batchCreateRulesetLoading,
                 }
             }
         }).mount('#app')
