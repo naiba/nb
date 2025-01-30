@@ -1,14 +1,13 @@
 module github.com/naiba/nb
 
 go 1.21
-
-toolchain go1.22.2
+toolchain go1.22.5
 
 require (
 	github.com/AppleGamer22/cocainate v1.0.20
 	github.com/cloudflare/cloudflare-go v0.95.0
 	github.com/dimiro1/banner v1.1.0
-	github.com/ethereum/go-ethereum v1.14.3
+	github.com/ethereum/go-ethereum v1.14.13
 	github.com/google/go-github/v47 v47.1.0
 	github.com/samber/lo v1.39.0
 	github.com/spf13/viper v1.18.2
@@ -18,7 +17,6 @@ require (
 )
 
 require (
-	github.com/btcsuite/btcd/btcec/v2 v2.2.0 // indirect
 	github.com/common-nighthawk/go-figure v0.0.0-20210622060536-734e95fb86be // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.4 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.1 // indirect
@@ -30,7 +28,7 @@ require (
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
 	github.com/hashicorp/go-retryablehttp v0.7.7 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
-	github.com/holiman/uint256 v1.2.4 // indirect
+	github.com/holiman/uint256 v1.3.1 // indirect
 	github.com/magiconair/properties v1.8.7 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
