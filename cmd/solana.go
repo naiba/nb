@@ -61,11 +61,6 @@ var solanaVanityCmd = &cli.Command{
 			Aliases: []string{"m"},
 			Usage:   "The mode of matching. 1: prefix, 2: suffix, 3: prefix or suffix.",
 		},
-		&cli.StringFlag{
-			Name:    "prefix-or-suffix",
-			Aliases: []string{"pos"},
-			Usage:   "The prefix or suffix of the address.",
-		},
 		&cli.BoolFlag{
 			Name:    "case-sensitive",
 			Aliases: []string{"cs"},
@@ -84,12 +79,10 @@ var solanaVanityCmd = &cli.Command{
 		mode := c.Int("mode")
 		caseSensitive := c.Bool("case-sensitive")
 
-		if mode < 1 || mode > 3 {
-			return cli.Exit("Invalid mode, should be 1, 2 or 3.", 1)
+		if (mode < 1 || mode > 3) || contains == "" {
+			cli.ShowSubcommandHelpAndExit(c, 1)
 		}
-		if contains == "" {
-			return cli.Exit("Contains is required.", 1)
-		}
+
 		if !caseSensitive {
 			contains = strings.ToLower(contains)
 		}
