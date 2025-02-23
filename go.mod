@@ -6,6 +6,7 @@ toolchain go1.23.2
 
 require (
 	github.com/AppleGamer22/cocainate v1.1.4
+	github.com/btcsuite/btcutil v1.0.2
 	github.com/cloudflare/cloudflare-go v0.115.0
 	github.com/dimiro1/banner v1.1.0
 	github.com/ethereum/go-ethereum v1.15.2
@@ -15,6 +16,7 @@ require (
 	github.com/urfave/cli/v2 v2.27.5
 	golang.org/x/crypto v0.34.0
 	golang.org/x/oauth2 v0.26.0
+	golang.org/x/sync v0.11.0
 )
 
 require (
@@ -63,7 +65,6 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/exp v0.0.0-20250218142911-aa4b98e5adaa // indirect
 	golang.org/x/net v0.35.0 // indirect
-	golang.org/x/sync v0.11.0 // indirect
 	golang.org/x/sys v0.30.0 // indirect
 	golang.org/x/text v0.22.0 // indirect
 	golang.org/x/time v0.10.0 // indirect

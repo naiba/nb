@@ -21,7 +21,7 @@ func init() {
 
 var solidityCmd = &cli.Command{
 	Name:  "solidity",
-	Usage: "Enhanced solidity command.",
+	Usage: "Solidity helper.",
 	Subcommands: []*cli.Command{
 		unflattenCmd,
 		create2vanityCmd,
