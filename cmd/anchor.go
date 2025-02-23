@@ -59,8 +59,13 @@ var changeEnvCmd = &cli.Command{
 			if err != nil {
 				return err
 			}
-			os.Remove(filepath.Join(currentPath, baseName))
-			os.Symlink(filepath.Join(currentPath, key), filepath.Join(currentPath, baseName+".json"))
+			baseName += ".json"
+			if err := os.Remove(filepath.Join(currentPath, baseName)); err != nil {
+				return err
+			}
+			if err := os.Symlink(filepath.Join(currentPath, key), filepath.Join(currentPath, baseName)); err != nil {
+				return err
+			}
 		}
 
 		keysSyncCmd := exec.Command("anchor", "keys", "sync")
