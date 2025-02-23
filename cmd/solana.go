@@ -3,10 +3,12 @@ package cmd
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
 	"fmt"
 	"log"
+	"math/big"
 	"strings"
-	"time"
+	"sync"
 
 	"golang.org/x/sync/errgroup"
 
@@ -87,6 +89,23 @@ var solanaVanityCmd = &cli.Command{
 			contains = strings.ToLower(contains)
 		}
 
+		initialSeedBytes := make([]byte, 32)
+		l, err := rand.Read(initialSeedBytes)
+		if err != nil || l != 32 {
+			log.Fatalf("Failed to generate random seed: %v", err)
+		}
+		initialSeedBn := new(big.Int).SetBytes(initialSeedBytes)
+		initialSeedBnLock := new(sync.Mutex)
+
+		generateTaskRange := func() (start, end *big.Int) {
+			initialSeedBnLock.Lock()
+			defer initialSeedBnLock.Unlock()
+			start = new(big.Int).Set(initialSeedBn)
+			end = new(big.Int).Add(initialSeedBn, big.NewInt(10000000))
+			initialSeedBn.Set(end)
+			return
+		}
+
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
@@ -94,28 +113,29 @@ var solanaVanityCmd = &cli.Command{
 		result := make(chan VanityResult, 1)
 
 		for i := 0; i < threads; i++ {
+			var seed [32]byte
 			g.Go(func() error {
 				for {
-					select {
-					case <-gctx.Done():
-						return nil
-					default:
-						pubKey, pk, err := ed25519.GenerateKey(nil)
-						if err != nil {
-							time.Sleep(time.Microsecond * 100)
-							continue
-						}
-						address := base58.Encode(pubKey)
-						if addressMatchesCriteria(caseSensitive, contains, mode, address) {
-							select {
-							case result <- VanityResult{
-								Address:    address,
-								PrivateKey: strings.ReplaceAll(fmt.Sprintf("%v", pk), " ", ","),
-							}:
-								cancel() // 通知其他 goroutine 退出
-							default: // 防止死锁
-							}
+					start, end := generateTaskRange()
+					for j := start; j.Cmp(end) == -1; j.Add(j, big.NewInt(1)) {
+						select {
+						case <-gctx.Done():
 							return nil
+						default:
+							j.FillBytes(seed[:])
+							privateKey := ed25519.NewKeyFromSeed(seed[:])
+							address := base58.Encode(privateKey[32:])
+							if addressMatchesCriteria(caseSensitive, contains, mode, address) {
+								select {
+								case result <- VanityResult{
+									Address:    address,
+									PrivateKey: strings.ReplaceAll(fmt.Sprintf("%v", privateKey), " ", ","),
+								}:
+									cancel() // 通知其他 goroutine 退出
+								default: // 防止死锁
+								}
+								return nil
+							}
 						}
 					}
 				}
