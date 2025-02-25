@@ -9,6 +9,7 @@ import (
 	"math/big"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 
@@ -97,11 +98,31 @@ var solanaVanityCmd = &cli.Command{
 		initialSeedBn := new(big.Int).SetBytes(initialSeedBytes)
 		initialSeedBnLock := new(sync.Mutex)
 
+		MAX_UINT256 := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
+		remaining := new(big.Int).Sub(MAX_UINT256, initialSeedBn)
+		estimateSecounds := new(big.Int).Mul(new(big.Int).Div(remaining, big.NewInt(int64(threads*10000000))), big.NewInt(23))
+		secoundsOf100Years := new(big.Int).Mul(big.NewInt(100), big.NewInt(365*24*60*60))
+		if estimateSecounds.Cmp(secoundsOf100Years) == 1 {
+			estimateSecounds = secoundsOf100Years
+		}
+		estimateTime := time.Duration(estimateSecounds.Uint64()) * time.Second
+		log.Printf("Remaining addresses to search: %v, estimated time: %v (2.6 GHz 6-Core Intel Core i7)", remaining, estimateTime)
+
 		generateTaskRange := func() (start, end *big.Int) {
 			initialSeedBnLock.Lock()
 			defer initialSeedBnLock.Unlock()
+
+			if initialSeedBn.Cmp(MAX_UINT256) != -1 {
+				panic("Seed exhausted")
+			}
+
 			start = new(big.Int).Set(initialSeedBn)
+
 			end = new(big.Int).Add(initialSeedBn, big.NewInt(10000000))
+			if end.Cmp(MAX_UINT256) == 1 {
+				end.Set(MAX_UINT256)
+			}
+
 			initialSeedBn.Set(end)
 			return
 		}
