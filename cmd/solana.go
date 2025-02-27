@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math/big"
@@ -29,10 +30,7 @@ var solanaCmd = &cli.Command{
 	},
 }
 
-func addressMatchesCriteria(caseSensitive bool, contains string, mode int, address string) bool {
-	if !caseSensitive {
-		address = strings.ToLower(address)
-	}
+func addressMatchesCriteria(contains string, mode int, address string) bool {
 	switch mode {
 	case 1:
 		return address[:len(contains)] == contains
@@ -69,6 +67,11 @@ var solanaVanityCmd = &cli.Command{
 			Aliases: []string{"cs"},
 			Usage:   "Whether the matching is case sensitive.",
 		},
+		&cli.BoolFlag{
+			Name:    "upper-or-lower",
+			Aliases: []string{"ul"},
+			Usage:   "Whether the matching is upper or lower case.",
+		},
 		&cli.IntFlag{
 			Name:    "threads",
 			Aliases: []string{"t"},
@@ -81,14 +84,15 @@ var solanaVanityCmd = &cli.Command{
 		contains := c.String("contains")
 		mode := c.Int("mode")
 		caseSensitive := c.Bool("case-sensitive")
+		upperOrLower := c.Bool("upper-or-lower")
+		containsLower := strings.ToLower(contains)
+		containsUpper := strings.ToUpper(contains)
 
 		if (mode < 1 || mode > 3) || contains == "" {
 			cli.ShowSubcommandHelpAndExit(c, 1)
 		}
 
-		if !caseSensitive {
-			contains = strings.ToLower(contains)
-		}
+		log.Printf("REMINDER: address can not contains number 0, alphabet O, I, l")
 
 		initialSeedBytes := make([]byte, 32)
 		l, err := rand.Read(initialSeedBytes)
@@ -146,7 +150,18 @@ var solanaVanityCmd = &cli.Command{
 							j.FillBytes(seed[:])
 							privateKey := ed25519.NewKeyFromSeed(seed[:])
 							address := base58.Encode(privateKey[32:])
-							if addressMatchesCriteria(caseSensitive, contains, mode, address) {
+
+							passed := addressMatchesCriteria(contains, mode, address)
+
+							if !passed && !caseSensitive {
+								passed = addressMatchesCriteria(containsLower, mode, strings.ToLower(address))
+							}
+
+							if !passed && upperOrLower {
+								passed = addressMatchesCriteria(containsUpper, mode, address) || addressMatchesCriteria(containsLower, mode, address)
+							}
+
+							if passed {
 								select {
 								case result <- VanityResult{
 									Address:    address,
@@ -169,8 +184,12 @@ var solanaVanityCmd = &cli.Command{
 		}()
 
 		if res, ok := <-result; ok {
-			log.Printf("%+v", res)
-			return nil
+			log.Printf("%+v\n", res)
+			var privateKey [64]byte
+			if err := json.Unmarshal([]byte(res.PrivateKey), &privateKey); err != nil {
+				log.Fatalf("Failed to unmarshal private key: %v", err)
+			}
+			log.Printf("Hex: %x", privateKey)
 		}
 		return nil
 	},
