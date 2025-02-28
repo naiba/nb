@@ -4,39 +4,21 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"os"
-	"os/exec"
 	"strings"
-	"syscall"
 
+	"github.com/naiba/nb/internal"
 	"github.com/naiba/nb/model"
 	"github.com/naiba/nb/singleton"
 )
 
 func ExecuteInHost(env []string, name string, args ...string) error {
-	command := BuildCommand(env, name, args...)
+	command := internal.BuildCommand(env, name, args...)
 	return command.Run()
 }
 
 func BashScriptExecuteInHost(line string) error {
-	command := BuildCommand(nil, "bash", "-c", line)
+	command := internal.BuildCommand(nil, "bash", "-c", line)
 	return command.Run()
-}
-
-func BuildCommand(env []string, name string, args ...string) *exec.Cmd {
-	command := exec.Command(name, args...)
-	pid := os.Getpid()
-	gid, err := syscall.Getpgid(pid)
-	if err != nil {
-		panic(err)
-	}
-	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pgid: gid}
-	command.Env = append(command.Env, os.Environ()...)
-	command.Env = append(command.Env, env...)
-	command.Stdin = os.Stdin
-	command.Stdout = os.Stdout
-	command.Stderr = os.Stderr
-	return command
 }
 
 func GetGitSSHCommandEnv(user string, proxyName string) (*model.GitAccount, []string, error) {

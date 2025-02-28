@@ -7,6 +7,8 @@ import (
 
 	"github.com/AppleGamer22/cocainate/session"
 	"github.com/urfave/cli/v2"
+
+	nbInternal "github.com/naiba/nb/internal"
 )
 
 func init() {
@@ -27,7 +29,7 @@ func getBeepCommand() string {
 	if runtime.GOOS != "darwin" {
 		return "echo -ne '\007'"
 	}
-	return "say Boom! Mission accomplished!"
+	return "afplay /System/Library/Sounds/Frog.aiff"
 }
 
 var beepCmd = &cli.Command{
@@ -48,7 +50,7 @@ var awakeCmd = &cli.Command{
 	Usage:           "Awake during the command is running.",
 	SkipFlagParsing: true,
 	Action: func(c *cli.Context) error {
-		cmd := BuildCommand(nil, "bash", "-c", strings.Join(c.Args().Slice(), " "))
+		cmd := nbInternal.BuildCommand(nil, "bash", "-c", strings.Join(c.Args().Slice(), " "))
 		if err := cmd.Start(); err != nil {
 			return err
 		}
@@ -68,7 +70,7 @@ var awakeBeepCmd = &cli.Command{
 	Usage:           "Awake and beep when an command is finished.",
 	SkipFlagParsing: true,
 	Action: func(c *cli.Context) error {
-		cmd := BuildCommand(nil, "bash", "-c", strings.Join(c.Args().Slice(), " "))
+		cmd := nbInternal.BuildCommand(nil, "bash", "-c", strings.Join(c.Args().Slice(), " "))
 		if err := cmd.Start(); err != nil {
 			return err
 		}

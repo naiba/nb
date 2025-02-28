@@ -7,29 +7,23 @@ import (
 	"syscall"
 
 	"github.com/naiba/nb/cmd"
+	"github.com/naiba/nb/internal"
 )
 
 func main() {
-	pid := os.Getpid()
-	gid, err := syscall.Getpgid(pid)
-	if err != nil {
-		panic(err)
-	}
 	var killed atomic.Bool
 	signalChain := make(chan os.Signal, 1)
 	signal.Notify(signalChain, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-signalChain
 		if killed.CompareAndSwap(false, true) {
-			if pid == gid {
-				syscall.Kill(-gid, syscall.SIGTERM)
-			}
+			internal.CleanupChildProcesses(true)
 			os.Exit(1)
 		}
 	}()
-	err = cmd.Execute()
+	err := cmd.Execute()
 	if killed.CompareAndSwap(false, true) {
-		syscall.Kill(-gid, syscall.SIGTERM)
+		internal.CleanupChildProcesses(false)
 	}
 	if err != nil {
 		os.Exit(1)
