@@ -5,7 +5,7 @@ builds:
   - env:
       - CGO_ENABLED=0
     ldflags:
-      - -s -w -X main.version={{.Version}}
+      - -s -w -X github.com/naiba/nb/cmd.version={{.Version}}
     goos:
       - linux
       - darwin

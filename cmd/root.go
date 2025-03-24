@@ -10,6 +10,8 @@ import (
 	"github.com/naiba/nb/singleton"
 )
 
+var version = "1.0.0"
+
 var rootCmd = &cli.App{
 	Name:  "nb",
 	Usage: "Nb is not only no bullshit.",
@@ -35,11 +37,21 @@ var rootCmd = &cli.App{
 			Usage:   "Choose a config file path.",
 			EnvVars: []string{"NB_CONFIG_PATH"},
 		},
+		&cli.BoolFlag{
+			Name:    "version",
+			Aliases: []string{"v"},
+			Usage:   "Print version.",
+		},
 	},
 	Before: func(c *cli.Context) error {
 		return singleton.Init(c.String("config-path"))
 	},
 	Action: func(c *cli.Context) error {
+		if c.Bool("version") {
+			fmt.Println(version)
+			return nil
+		}
+
 		args := c.Args().Slice()
 		if len(args) == 0 {
 			return cli.ShowAppHelp(c)

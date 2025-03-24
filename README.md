@@ -14,6 +14,9 @@ nb # prepare config file to config path
 ## Usage
 
 ```sh
+# Print help
+nb -h
+
 # Print banner, can append to .profile/.zshrc
 nb print-banner
 
