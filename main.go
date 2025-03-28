@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"os"
 	"os/signal"
 	"sync/atomic"
@@ -26,6 +27,7 @@ func main() {
 		internal.CleanupChildProcesses(false)
 	}
 	if err != nil {
+		log.Println(err)
 		os.Exit(1)
 	}
 }

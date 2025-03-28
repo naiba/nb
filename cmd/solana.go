@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"math/big"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -15,6 +16,9 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/btcsuite/btcutil/base58"
+	"github.com/gagliardetto/solana-go"
+	"github.com/gagliardetto/solana-go/rpc"
+	"github.com/shopspring/decimal"
 	"github.com/urfave/cli/v2"
 )
 
@@ -27,6 +31,159 @@ var solanaCmd = &cli.Command{
 	Usage: "Solana helper.",
 	Subcommands: []*cli.Command{
 		solanaVanityCmd,
+		sandwichAttackCheckCmd,
+	},
+}
+
+var sandwichAttackCheckCmd = &cli.Command{
+	Name:  "check-sandwich-attack",
+	Usage: "Check sandwich attack.",
+	Aliases: []string{
+		"csa",
+	},
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:    "rpc",
+			Aliases: []string{"r"},
+			Value:   rpc.MainNetBeta_RPC,
+		},
+		&cli.StringFlag{
+			Name:    "address",
+			Aliases: []string{"a"},
+			Usage:   "The user's address.",
+		},
+		&cli.StringFlag{
+			Name:    "signature",
+			Aliases: []string{"s"},
+			Usage:   "The transaction signature to check.",
+		},
+		&cli.StringFlag{
+			Name:    "token",
+			Aliases: []string{"t"},
+			Usage:   "The token to check. \"sol\" is for SOL, others are for SPL tokens.",
+		},
+	},
+	Action: func(c *cli.Context) error {
+		addressToCheck := solana.MustPublicKeyFromBase58(c.String("address"))
+		tokenToCheck := solana.MustPublicKeyFromBase58(c.String("token"))
+		signature := solana.MustSignatureFromBase58(c.String("signature"))
+		tokenAccountToCheck, _, err := solana.FindAssociatedTokenAddress(
+			addressToCheck,
+			tokenToCheck,
+		)
+		if err != nil {
+			return err
+		}
+
+		maxSupportedTransactionVersion := uint64(0)
+		rpcClient := rpc.New(c.String("rpc"))
+		getTxRet, err := rpcClient.GetTransaction(
+			c.Context,
+			signature,
+			&rpc.GetTransactionOpts{
+				MaxSupportedTransactionVersion: &maxSupportedTransactionVersion,
+			},
+		)
+		if err != nil {
+			return err
+		}
+
+		tx, err := getTxRet.Transaction.GetTransaction()
+		if err != nil {
+			return err
+		}
+
+		var addressIdx int = -1
+		for i, acc := range tx.Message.AccountKeys {
+			if acc.Equals(tokenAccountToCheck) {
+				addressIdx = i
+				break
+			}
+		}
+		if addressIdx == -1 {
+			return fmt.Errorf("address not found in transaction")
+		}
+
+		var balanceChange *big.Int
+		var postTokenBalance *big.Int
+		for _, b := range getTxRet.Meta.PostTokenBalances {
+			if b.AccountIndex == uint16(addressIdx) && b.Mint.Equals(tokenToCheck) {
+				postTokenBalance = decimal.RequireFromString(b.UiTokenAmount.Amount).Mul(decimal.New(10, int32(b.UiTokenAmount.Decimals))).BigInt()
+				break
+			}
+		}
+		if postTokenBalance == nil {
+			return fmt.Errorf("token balance not found in transaction")
+		}
+		for _, b := range getTxRet.Meta.PreTokenBalances {
+			if b.AccountIndex == uint16(addressIdx) && b.Mint.Equals(tokenToCheck) {
+				preBalance := decimal.RequireFromString(b.UiTokenAmount.Amount).Mul(decimal.New(10, int32(b.UiTokenAmount.Decimals))).BigInt()
+				balanceChange = new(big.Int).Sub(postTokenBalance, preBalance)
+				break
+			}
+		}
+
+		log.Printf("User token balance change: %v", balanceChange)
+		blockRet, err := rpcClient.GetBlockWithOpts(c.Context, getTxRet.Slot, &rpc.GetBlockOpts{
+			MaxSupportedTransactionVersion: &maxSupportedTransactionVersion,
+			Encoding:                       solana.EncodingBase64,
+		})
+		if err != nil {
+			return err
+		}
+
+		var relatedTxs []struct {
+			Signature string
+			Idx       int
+			Amount    *big.Int
+		}
+		var userTxIdx int = -1
+
+		for i := 0; i < len(blockRet.Transactions); i++ {
+			t := blockRet.Transactions[i]
+			tx := t.MustGetTransaction()
+			if t.Meta.Err != nil {
+				continue
+			}
+			if tx.Signatures[0].Equals(signature) {
+				if userTxIdx != -1 {
+					return fmt.Errorf("user transaction found multiple times in block")
+				}
+				userTxIdx = i
+			}
+			balanceChangeIdx := slices.IndexFunc(t.Meta.PostTokenBalances, func(b rpc.TokenBalance) bool {
+				return b.Mint.Equals(tokenToCheck)
+			})
+			if balanceChangeIdx != -1 {
+				amount := decimal.RequireFromString(t.Meta.PostTokenBalances[balanceChangeIdx].UiTokenAmount.Amount).
+					Sub(decimal.RequireFromString(t.Meta.PreTokenBalances[balanceChangeIdx].UiTokenAmount.Amount)).
+					Mul(decimal.New(10, int32(t.Meta.PostTokenBalances[balanceChangeIdx].UiTokenAmount.Decimals))).
+					BigInt()
+				relatedTxs = append(relatedTxs, struct {
+					Signature string
+					Idx       int
+					Amount    *big.Int
+				}{
+					Signature: base58.Encode(tx.Signatures[0][:]),
+					Idx:       i,
+					Amount:    amount,
+				})
+			}
+		}
+
+		if userTxIdx == -1 {
+			return fmt.Errorf("user transaction not found in block")
+		}
+
+		for _, relatedTx := range relatedTxs {
+			var desc string
+			if relatedTx.Idx == userTxIdx {
+				desc = "(user)"
+			}
+			log.Printf("idx: %d%s, amount: %v, tx: %s", relatedTx.Idx, desc, relatedTx.Amount, relatedTx.Signature)
+		}
+
+		return nil
 	},
 }
 

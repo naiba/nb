@@ -19,7 +19,6 @@ var updateCmd = &cli.Command{
 		v := semver.MustParse(version)
 		latest, err := selfupdate.UpdateSelf(v, "naiba/nb")
 		if err != nil {
-			log.Println("Binary update failed:", err)
 			return err
 		}
 		if latest.Version.Equals(v) {
