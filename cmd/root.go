@@ -13,8 +13,9 @@ import (
 var version = "1.0.0"
 
 var rootCmd = &cli.App{
-	Name:  "nb",
-	Usage: "Nb is not only no bullshit.",
+	Name:        "nb",
+	Usage:       "Nb is not only no bullshit.",
+	Description: "Author: naiba https://github.com/naiba",
 	Flags: []cli.Flag{
 		&cli.StringFlag{
 			Name:    "proxy",

@@ -145,14 +145,18 @@ var sandwichAttackCheckCmd = &cli.Command{
 			if t.Meta.Err != nil {
 				continue
 			}
-			if tx.Signatures[0].Equals(signature) {
+			isUserTx := tx.Signatures[0].Equals(signature)
+			if isUserTx {
 				if userTxIdx != -1 {
 					return fmt.Errorf("user transaction found multiple times in block")
 				}
 				userTxIdx = i
 			}
 			balanceChangeIdx := slices.IndexFunc(t.Meta.PostTokenBalances, func(b rpc.TokenBalance) bool {
-				return b.Mint.Equals(tokenToCheck)
+				if !isUserTx {
+					return b.Mint.Equals(tokenToCheck)
+				}
+				return b.AccountIndex == uint16(addressIdx) && b.Mint.Equals(tokenToCheck)
 			})
 			if balanceChangeIdx != -1 {
 				amount := decimal.RequireFromString(t.Meta.PostTokenBalances[balanceChangeIdx].UiTokenAmount.Amount).
@@ -175,6 +179,7 @@ var sandwichAttackCheckCmd = &cli.Command{
 			return fmt.Errorf("user transaction not found in block")
 		}
 
+		log.Println(">>>>>>>>> Related transactions <<<<<<<<<")
 		for _, relatedTx := range relatedTxs {
 			var desc string
 			if relatedTx.Idx == userTxIdx {
