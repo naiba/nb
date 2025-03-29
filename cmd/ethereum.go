@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"log"
 	"math"
 	"math/big"
@@ -10,6 +11,8 @@ import (
 	"time"
 
 	"github.com/urfave/cli/v2"
+
+	"github.com/naiba/nb/internal/ethereum"
 )
 
 func init() {
@@ -21,6 +24,65 @@ var ethereumCmd = &cli.Command{
 	Usage: "Ethereum helper.",
 	Subcommands: []*cli.Command{
 		timestampToBlockNumberCmd,
+		checkSandwichAttackCmd,
+	},
+}
+
+var checkSandwichAttackCmd = &cli.Command{
+	Name:    "check-sandwich-attack",
+	Usage:   "Check sandwich attack.",
+	Aliases: []string{"csa"},
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:    "rpc",
+			Aliases: []string{"r"},
+			Usage:   "Ethereum RPC endpoint.",
+			Value:   "https://bsc-rpc.publicnode.com",
+		},
+		&cli.StringFlag{
+			Name:  "tx",
+			Usage: "Transaction hash.",
+		},
+		&cli.StringFlag{
+			Name:    "user",
+			Aliases: []string{"u"},
+			Usage:   "User address.",
+		},
+		&cli.StringFlag{
+			Name:    "token",
+			Aliases: []string{"t"},
+			Usage:   "Token address.",
+		},
+		&cli.IntFlag{
+			Name:    "max-check-tx-count",
+			Aliases: []string{"m"},
+			Usage:   "Max check tx count.",
+			Value:   20,
+		},
+	},
+	Action: func(c *cli.Context) error {
+		rpc := c.String("rpc")
+		if rpc == "" {
+			return fmt.Errorf("RPC endpoint is required")
+		}
+
+		txHash := c.String("tx")
+		if txHash == "" {
+			return fmt.Errorf("Transaction hash is required")
+		}
+		user := c.String("user")
+		if user == "" {
+			return fmt.Errorf("User address is required")
+		}
+		token := c.String("token")
+		if token == "" {
+			return fmt.Errorf("Token address is required")
+		}
+		maxCheckTxCount := c.Int("max-check-tx-count")
+		if maxCheckTxCount == 0 {
+			return fmt.Errorf("Max check tx count is required")
+		}
+		return ethereum.CheckSandwichAttack(c.Context, rpc, txHash, user, token, maxCheckTxCount)
 	},
 }
 
