@@ -137,7 +137,7 @@ func CheckSandwichAttack(ctx context.Context, rpcUrl string, signatureString str
 		if relatedTx.Idx == userTxIdx {
 			desc = "(user)"
 		}
-		log.Printf("idx: %d%s, amount: %v, account: %s", relatedTx.Idx, desc, relatedTx.Amount, relatedTx.Account)
+		log.Printf("idx: %d%s, amount: %v, account: %s, signature: %s", relatedTx.Idx, desc, relatedTx.Amount, relatedTx.Account, relatedTx.Signature)
 	}
 
 	return nil
