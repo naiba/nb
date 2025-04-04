@@ -7,9 +7,9 @@ import (
 	"math/big"
 	"slices"
 
-	"github.com/btcsuite/btcutil/base58"
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
+	"github.com/mr-tron/base58"
 	"github.com/shopspring/decimal"
 )
 

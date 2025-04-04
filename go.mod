@@ -7,12 +7,13 @@ toolchain go1.23.2
 require (
 	github.com/AppleGamer22/cocainate v1.1.4
 	github.com/blang/semver v3.5.1+incompatible
-	github.com/btcsuite/btcutil v1.0.2
 	github.com/cloudflare/cloudflare-go v0.115.0
 	github.com/dimiro1/banner v1.1.0
 	github.com/ethereum/go-ethereum v1.15.5
+	github.com/gagliardetto/binary v0.8.0
 	github.com/gagliardetto/solana-go v1.12.0
 	github.com/google/go-github/v47 v47.1.0
+	github.com/mr-tron/base58 v1.2.0
 	github.com/nezhahq/go-github-selfupdate v0.0.0-20241205090552-0b56e412e750
 	github.com/samber/lo v1.49.1
 	github.com/shopspring/decimal v1.3.1
@@ -52,7 +53,6 @@ require (
 	github.com/ethereum/go-verkle v0.2.2 // indirect
 	github.com/fatih/color v1.16.0 // indirect
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
-	github.com/gagliardetto/binary v0.8.0 // indirect
 	github.com/gagliardetto/treeout v0.1.4 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.2.1 // indirect
@@ -77,7 +77,6 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/mostynb/zstdpool-freelist v0.0.0-20201229113212-927304c0c3b1 // indirect
-	github.com/mr-tron/base58 v1.2.0 // indirect
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect

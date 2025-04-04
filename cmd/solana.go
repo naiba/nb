@@ -2,19 +2,10 @@ package cmd
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
-	"encoding/json"
-	"fmt"
+	"errors"
 	"log"
-	"math/big"
-	"strings"
-	"sync"
-	"time"
 
-	"golang.org/x/sync/errgroup"
-
-	"github.com/btcsuite/btcutil/base58"
+	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
 	"github.com/urfave/cli/v2"
 
@@ -31,6 +22,106 @@ var solanaCmd = &cli.Command{
 	Subcommands: []*cli.Command{
 		solanaVanityCmd,
 		sandwichAttackCheckCmd,
+		decodeTransactionCmd,
+		getTransactionCmd,
+	},
+}
+
+var getTransactionCmd = &cli.Command{
+	Name:  "get-transaction",
+	Usage: "Get transaction.",
+	Aliases: []string{
+		"gt",
+	},
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:    "rpc",
+			Aliases: []string{"r"},
+			Value:   "https://solana-rpc.publicnode.com",
+		},
+		&cli.StringFlag{
+			Name:    "signature",
+			Aliases: []string{"s"},
+			Usage:   "The transaction signature.",
+		},
+	},
+	Action: func(c *cli.Context) error {
+		rpcUrl := c.String("rpc")
+		signature := c.String("signature")
+
+		if signature == "" {
+			cli.ShowSubcommandHelp(c)
+			return errors.New("Transaction signature is required")
+		}
+
+		rpcClient := rpc.New(rpcUrl)
+		maxSupportedTransactionVersion := uint64(0)
+		ret, err := rpcClient.GetTransaction(
+			c.Context,
+			solana.MustSignatureFromBase58(signature),
+			&rpc.GetTransactionOpts{
+				Encoding:                       solana.EncodingBase64,
+				MaxSupportedTransactionVersion: &maxSupportedTransactionVersion,
+			},
+		)
+		if err != nil {
+			return err
+		}
+		tx, err := ret.Transaction.GetTransaction()
+		if err != nil {
+			return err
+		}
+		if err := solanax.FillAddressLookupTable(c.Context, rpcClient, tx); err != nil {
+			return err
+		}
+		log.Print(tx.String())
+		return nil
+	},
+}
+
+var decodeTransactionCmd = &cli.Command{
+	Name:  "decode-transaction",
+	Usage: "Decode transaction.",
+	Aliases: []string{
+		"dt",
+	},
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:    "rpc",
+			Aliases: []string{"r"},
+			Value:   "https://solana-rpc.publicnode.com",
+		},
+		&cli.StringFlag{
+			Name:    "tx-base64",
+			Aliases: []string{"t"},
+			Usage:   "The transaction to decode.",
+		},
+		&cli.BoolFlag{
+			Name:    "load-alt",
+			Aliases: []string{"l"},
+			Usage:   "Whether to load the address lookup table.",
+		},
+		&cli.BoolFlag{
+			Name:    "pretty",
+			Aliases: []string{"p"},
+			Usage:   "Whether to pretty print the output.",
+		},
+	},
+	Action: func(c *cli.Context) error {
+		rpcUrl := c.String("rpc")
+		txBase64 := c.String("tx-base64")
+		parseALT := c.Bool("load-alt")
+
+		if txBase64 == "" {
+			cli.ShowSubcommandHelp(c)
+			return cli.Exit("Transaction is required", 1)
+		}
+
+		if c.Bool("pretty") {
+			return solanax.DecodeTransaction(c.Context, rpcUrl, txBase64, parseALT)
+		}
+
+		return solanax.DecodeTransactionByteByByte(c.Context, rpcUrl, txBase64, parseALT)
 	},
 }
 
@@ -44,7 +135,7 @@ var sandwichAttackCheckCmd = &cli.Command{
 		&cli.StringFlag{
 			Name:    "rpc",
 			Aliases: []string{"r"},
-			Value:   rpc.MainNetBeta_RPC,
+			Value:   "https://solana-rpc.publicnode.com",
 		},
 		&cli.StringFlag{
 			Name:    "address",
@@ -69,24 +160,6 @@ var sandwichAttackCheckCmd = &cli.Command{
 		token := c.String("token")
 		return solanax.CheckSandwichAttack(context.Background(), rpcUrl, signature, address, token, 100)
 	},
-}
-
-func addressMatchesCriteria(contains string, mode int, address string) bool {
-	switch mode {
-	case 1:
-		return address[:len(contains)] == contains
-	case 2:
-		return address[len(address)-len(contains):] == contains
-	case 3:
-		return address[:len(contains)] == contains || address[len(address)-len(contains):] == contains
-	default:
-		return false
-	}
-}
-
-type VanityResult struct {
-	Address    string
-	PrivateKey string
 }
 
 var solanaVanityCmd = &cli.Command{
@@ -126,112 +199,17 @@ var solanaVanityCmd = &cli.Command{
 		mode := c.Int("mode")
 		caseSensitive := c.Bool("case-sensitive")
 		upperOrLower := c.Bool("upper-or-lower")
-		containsLower := strings.ToLower(contains)
-		containsUpper := strings.ToUpper(contains)
 
 		if (mode < 1 || mode > 3) || contains == "" {
 			cli.ShowSubcommandHelpAndExit(c, 1)
 		}
 
-		log.Printf("REMINDER: address can not contains number 0, alphabet O, I, l")
-
-		initialSeedBytes := make([]byte, 32)
-		l, err := rand.Read(initialSeedBytes)
-		if err != nil || l != 32 {
-			log.Fatalf("Failed to generate random seed: %v", err)
-		}
-		initialSeedBn := new(big.Int).SetBytes(initialSeedBytes)
-		initialSeedBnLock := new(sync.Mutex)
-
-		MAX_UINT256 := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
-		remaining := new(big.Int).Sub(MAX_UINT256, initialSeedBn)
-		estimateSecounds := new(big.Int).Mul(new(big.Int).Div(remaining, big.NewInt(int64(threads*10000000))), big.NewInt(23))
-		secoundsOf100Years := new(big.Int).Mul(big.NewInt(100), big.NewInt(365*24*60*60))
-		if estimateSecounds.Cmp(secoundsOf100Years) == 1 {
-			estimateSecounds = secoundsOf100Years
-		}
-		estimateTime := time.Duration(estimateSecounds.Uint64()) * time.Second
-		log.Printf("Remaining addresses to search: %v, estimated time: %v (2.6 GHz 6-Core Intel Core i7)", remaining, estimateTime)
-
-		generateTaskRange := func() (start, end *big.Int) {
-			initialSeedBnLock.Lock()
-			defer initialSeedBnLock.Unlock()
-
-			if initialSeedBn.Cmp(MAX_UINT256) != -1 {
-				panic("Seed exhausted")
-			}
-
-			start = new(big.Int).Set(initialSeedBn)
-
-			end = new(big.Int).Add(initialSeedBn, big.NewInt(10000000))
-			if end.Cmp(MAX_UINT256) == 1 {
-				end.Set(MAX_UINT256)
-			}
-
-			initialSeedBn.Set(end)
-			return
-		}
-
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		g, gctx := errgroup.WithContext(ctx)
-		result := make(chan VanityResult, 1)
-
-		for i := 0; i < threads; i++ {
-			var seed [32]byte
-			g.Go(func() error {
-				for {
-					start, end := generateTaskRange()
-					for j := start; j.Cmp(end) == -1; j.Add(j, big.NewInt(1)) {
-						select {
-						case <-gctx.Done():
-							return nil
-						default:
-							j.FillBytes(seed[:])
-							privateKey := ed25519.NewKeyFromSeed(seed[:])
-							address := base58.Encode(privateKey[32:])
-
-							passed := addressMatchesCriteria(contains, mode, address)
-
-							if !passed && !caseSensitive {
-								passed = addressMatchesCriteria(containsLower, mode, strings.ToLower(address))
-							}
-
-							if !passed && upperOrLower {
-								passed = addressMatchesCriteria(containsUpper, mode, address) || addressMatchesCriteria(containsLower, mode, address)
-							}
-
-							if passed {
-								select {
-								case result <- VanityResult{
-									Address:    address,
-									PrivateKey: strings.ReplaceAll(fmt.Sprintf("%v", privateKey), " ", ","),
-								}:
-									cancel() // 通知其他 goroutine 退出
-								default: // 防止死锁
-								}
-								return nil
-							}
-						}
-					}
-				}
-			})
-		}
-
-		go func() {
-			g.Wait()
-			close(result)
-		}()
-
-		if res, ok := <-result; ok {
-			log.Printf("%+v\n", res)
-			var privateKey [64]byte
-			if err := json.Unmarshal([]byte(res.PrivateKey), &privateKey); err != nil {
-				log.Fatalf("Failed to unmarshal private key: %v", err)
-			}
-			log.Printf("Hex: %x", privateKey)
-		}
-		return nil
+		return solanax.VanityAddress(
+			threads,
+			contains,
+			mode,
+			caseSensitive,
+			upperOrLower,
+		)
 	},
 }
