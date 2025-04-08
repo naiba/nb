@@ -22,10 +22,12 @@ func main() {
 			os.Exit(1)
 		}
 	}()
+	defer func() {
+		if killed.CompareAndSwap(false, true) {
+			internal.CleanupChildProcesses(false)
+		}
+	}()
 	err := cmd.Execute()
-	if killed.CompareAndSwap(false, true) {
-		internal.CleanupChildProcesses(false)
-	}
 	if err != nil {
 		log.Println(err)
 		os.Exit(1)

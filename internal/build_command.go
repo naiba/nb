@@ -4,6 +4,7 @@
 package internal
 
 import (
+	"log"
 	"os"
 	"os/exec"
 	"syscall"
@@ -13,20 +14,15 @@ var pid, gid int
 
 func init() {
 	var err error
-	pid := os.Getpid()
+	pid = os.Getpid()
 	gid, err = syscall.Getpgid(pid)
 	if err != nil {
-		panic(err)
+		log.Fatalf("Failed to get process group ID: %v", err)
 	}
 }
 
 func BuildCommand(env []string, name string, args ...string) *exec.Cmd {
 	command := exec.Command(name, args...)
-	pid := os.Getpid()
-	gid, err := syscall.Getpgid(pid)
-	if err != nil {
-		panic(err)
-	}
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pgid: gid}
 	command.Env = append(command.Env, os.Environ()...)
 	command.Env = append(command.Env, env...)
@@ -36,8 +32,8 @@ func BuildCommand(env []string, name string, args ...string) *exec.Cmd {
 	return command
 }
 
-func CleanupChildProcesses(isSignal bool) {
-	if !isSignal || (isSignal && pid == gid) {
+func CleanupChildProcesses(bySignal bool) {
+	if pid == gid {
 		syscall.Kill(-gid, syscall.SIGTERM)
 	}
 }
