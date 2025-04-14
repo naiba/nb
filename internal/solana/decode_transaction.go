@@ -193,10 +193,10 @@ func DecodeTransactionByteByByte(
 
 	if parseALT {
 		rpcClient := rpc.New(rpcUrl)
-		for _, alt := range alts {
+		for i := 0; i < len(alts); i++ {
 			info, err := rpcClient.GetAccountInfo(
 				ctx,
-				solana.MustPublicKeyFromBase58(alt.address),
+				solana.MustPublicKeyFromBase58(alts[i].address),
 			)
 			if err != nil {
 				return err
@@ -206,7 +206,7 @@ func DecodeTransactionByteByByte(
 			if err != nil {
 				return err
 			}
-			alt.addresses = tableContent.Addresses
+			alts[i].addresses = tableContent.Addresses
 		}
 		log.Println(("-------- Address Lookup Table Addresses --------"))
 		keyIndex := len(staticAccounts)

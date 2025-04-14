@@ -48,7 +48,7 @@ func VanityAddress(
 	initialSeedBytes := make([]byte, 32)
 	l, err := rand.Read(initialSeedBytes)
 	if err != nil || l != 32 {
-		return fmt.Errorf("Failed to generate random seed: %v", err)
+		return fmt.Errorf("failed to generate random seed: %v", err)
 	}
 	initialSeedBn := new(big.Int).SetBytes(initialSeedBytes)
 	initialSeedBnLock := new(sync.Mutex)
@@ -138,7 +138,7 @@ func VanityAddress(
 		log.Printf("%+v\n", res)
 		var privateKey [64]byte
 		if err := json.Unmarshal([]byte(res.PrivateKey), &privateKey); err != nil {
-			return fmt.Errorf("Failed to unmarshal private key: %v", err)
+			return fmt.Errorf("failed to unmarshal private key: %v", err)
 		}
 		log.Printf("Hex: %x", privateKey)
 	}
