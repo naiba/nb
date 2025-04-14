@@ -51,7 +51,7 @@ var getTransactionCmd = &cli.Command{
 
 		if signature == "" {
 			cli.ShowSubcommandHelp(c)
-			return errors.New("Transaction signature is required")
+			return errors.New("transaction signature is required")
 		}
 
 		rpcClient := rpc.New(rpcUrl)

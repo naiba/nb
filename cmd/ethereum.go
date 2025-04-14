@@ -63,24 +63,24 @@ var checkSandwichAttackCmd = &cli.Command{
 	Action: func(c *cli.Context) error {
 		rpc := c.String("rpc")
 		if rpc == "" {
-			return fmt.Errorf("RPC endpoint is required")
+			return fmt.Errorf("rpc endpoint is required")
 		}
 
 		txHash := c.String("tx")
 		if txHash == "" {
-			return fmt.Errorf("Transaction hash is required")
+			return fmt.Errorf("transaction hash is required")
 		}
 		user := c.String("user")
 		if user == "" {
-			return fmt.Errorf("User address is required")
+			return fmt.Errorf("user address is required")
 		}
 		token := c.String("token")
 		if token == "" {
-			return fmt.Errorf("Token address is required")
+			return fmt.Errorf("token address is required")
 		}
 		maxCheckTxCount := c.Int("max-check-tx-count")
 		if maxCheckTxCount == 0 {
-			return fmt.Errorf("Max check tx count is required")
+			return fmt.Errorf("max check tx count is required")
 		}
 		return ethereum.CheckSandwichAttack(c.Context, rpc, txHash, user, token, maxCheckTxCount)
 	},

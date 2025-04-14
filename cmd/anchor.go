@@ -40,7 +40,7 @@ var namingEnvCmd = &cli.Command{
 		if err != nil {
 			return err
 		}
-		currentPath += "/target/deploy/"
+		currentPath = filepath.Join(currentPath, "target", "deploy")
 		log.Println("Current path: ", currentPath)
 		envKeySuffix := fmt.Sprintf(".%s.json", envName)
 		var matchedKeys []string
@@ -96,7 +96,7 @@ var switchingEnvCmd = &cli.Command{
 		if err != nil {
 			return err
 		}
-		currentPath += "/target/deploy/"
+		currentPath = filepath.Join(currentPath, "target", "deploy")
 		log.Println("Current path: ", currentPath)
 		envKeySuffix := fmt.Sprintf(".%s.json", envName)
 		log.Printf("Searching env file with suffix: %s", envKeySuffix)
