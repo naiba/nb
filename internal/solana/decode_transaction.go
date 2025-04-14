@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
-	"log"
 	"strconv"
 
 	bin "github.com/gagliardetto/binary"
@@ -22,6 +22,18 @@ type altData struct {
 	readonly  []uint64
 }
 
+type ixData struct {
+	programIdIdx int
+	data         string
+	accounts     []uint64
+}
+
+type messageHeader struct {
+	requiredSignatures       uint64
+	readonlySignedAccounts   uint64
+	readonlyUnsignedAccounts uint64
+}
+
 func DecodeTransactionByteByByte(
 	ctx context.Context,
 	rpcUrl string,
@@ -36,7 +48,7 @@ func DecodeTransactionByteByByte(
 	txBytes = fillDummySignature(txBytes)
 
 	hexStr := hex.EncodeToString(txBytes)
-	log.Printf("transaction length: %d, hex: %s", len(txBytes), hexStr)
+	fmt.Printf("transaction length: %d, hex: %s", len(txBytes), hexStr)
 
 	readIndex := 0
 
@@ -76,24 +88,29 @@ func DecodeTransactionByteByByte(
 
 	for i := 0; i < int(signatureLen); i++ {
 		signature := readN(64)
-		fmt.Println(signature, "Signature:", i+1)
+		fmt.Println(signature, "Signature:", i)
 	}
 
 	messageVersionHex := readN(1)
 	messageVersion, _ := strconv.ParseUint(messageVersionHex, 16, 8)
 	fmt.Println(messageVersionHex, "Message version (1 for v0, 0 for legacy):", messageVersion-127)
 
+	var messageHeader messageHeader
+
 	messageHeaderNumRequiredSignaturesHex := readN(1)
 	messageHeaderNumRequiredSignatures, _ := strconv.ParseUint(messageHeaderNumRequiredSignaturesHex, 16, 8)
 	fmt.Println(messageHeaderNumRequiredSignaturesHex, "Message header - Required signatures length:", messageHeaderNumRequiredSignatures)
+	messageHeader.requiredSignatures = messageHeaderNumRequiredSignatures
 
 	messageHeaderNumReadonlySignedAccountsHex := readN(1)
 	messageHeaderNumReadonlySignedAccounts, _ := strconv.ParseUint(messageHeaderNumReadonlySignedAccountsHex, 16, 8)
 	fmt.Println(messageHeaderNumReadonlySignedAccountsHex, "Message header - Readonly signed accounts length:", messageHeaderNumReadonlySignedAccounts)
+	messageHeader.readonlyUnsignedAccounts = messageHeaderNumReadonlySignedAccounts
 
 	messageHeaderNumReadonlyUnsignedAccountsHex := readN(1)
 	messageHeaderNumReadonlyUnsignedAccounts, _ := strconv.ParseUint(messageHeaderNumReadonlyUnsignedAccountsHex, 16, 8)
 	fmt.Println(messageHeaderNumReadonlyUnsignedAccountsHex, "Message header - Readonly unsigned accounts length:", messageHeaderNumReadonlyUnsignedAccounts)
+	messageHeader.readonlySignedAccounts = messageHeaderNumReadonlyUnsignedAccounts
 
 	staticAccounts := []string{}
 	staticAccountKeyLen := readLen()
@@ -104,7 +121,7 @@ func DecodeTransactionByteByByte(
 		keyBytes, _ := hex.DecodeString(keyHex)
 		key := base58.Encode(keyBytes)
 		staticAccounts = append(staticAccounts, key)
-		fmt.Println(keyHex, "Static account:", i+1, key)
+		fmt.Println(keyHex, "Static account:", i, key)
 	}
 
 	recentBlockhashHex := readN(32)
@@ -115,12 +132,18 @@ func DecodeTransactionByteByByte(
 	instructionLen := readLen()
 	fmt.Println(instructionLen.hex, "Instruction length:", instructionLen.len)
 
+	instructions := make([]ixData, instructionLen.len)
+
 	for i := 0; i < instructionLen.len; i++ {
-		fmt.Println("--------", "Instruction:", i+1, "--------")
+		fmt.Println("--------", "Instruction:", i, "--------")
 
 		programIdIndexHex := readN(1)
-		programIdIndex, _ := strconv.ParseUint(programIdIndexHex, 16, 8)
+		programIdIndex, err := strconv.ParseUint(programIdIndexHex, 16, 8)
+		if err != nil {
+			return errors.Join(fmt.Errorf("program id index: %s", programIdIndexHex), err)
+		}
 		fmt.Println(programIdIndexHex, "Program ID index:", programIdIndex, staticAccounts[programIdIndex])
+		instructions[i].programIdIdx = int(programIdIndex)
 
 		accountIndexLen := readLen()
 		fmt.Println(accountIndexLen.hex, "Account index length:", accountIndexLen.len)
@@ -135,11 +158,13 @@ func DecodeTransactionByteByByte(
 			ixKeysIdxHex += accountIndexHex
 		}
 		fmt.Println(ixKeysIdxHex, "Account indices:", ixKeysIdx)
+		instructions[i].accounts = ixKeysIdx
 
 		dataLenHex := readLen()
 		fmt.Println(dataLenHex.hex, "Data length:", dataLenHex.len)
 		data := readN(dataLenHex.len)
 		fmt.Println(data, "Data")
+		instructions[i].data = data
 	}
 
 	addressLookupTableLenHex := readN(1)
@@ -154,7 +179,7 @@ func DecodeTransactionByteByByte(
 		if err != nil {
 			return err
 		}
-		fmt.Println(address, "Address:", i+1, base58.Encode(addressBytes))
+		fmt.Println(address, "Address:", i, base58.Encode(addressBytes))
 
 		writeableIndexLen := readLen()
 		fmt.Println(writeableIndexLen.hex, "Writeable index length:", writeableIndexLen.len)
@@ -191,7 +216,7 @@ func DecodeTransactionByteByByte(
 		})
 	}
 
-	if parseALT {
+	if parseALT && len(alts) > 0 {
 		rpcClient := rpc.New(rpcUrl)
 		for i := 0; i < len(alts); i++ {
 			info, err := rpcClient.GetAccountInfo(
@@ -208,27 +233,109 @@ func DecodeTransactionByteByByte(
 			}
 			alts[i].addresses = tableContent.Addresses
 		}
-		log.Println(("-------- Address Lookup Table Addresses --------"))
+		fmt.Println(("-------- Address Lookup Table Addresses --------"))
 		keyIndex := len(staticAccounts)
+		var writeableAccounts, readonlyAccounts []string
 		for _, alt := range alts {
 			for i := 0; i < len(alt.writeable); i++ {
-				log.Printf("%d %s @ %s\n", keyIndex, alt.addresses[alt.writeable[i]], alt.address)
+				fmt.Printf("%d %s @ %s\n", keyIndex, alt.addresses[alt.writeable[i]], alt.address)
 				keyIndex++
+				writeableAccounts = append(writeableAccounts, alt.addresses[alt.writeable[i]].String())
 			}
 		}
 		for _, alt := range alts {
 			for i := 0; i < len(alt.readonly); i++ {
-				log.Printf("%d %s @ %s\n", keyIndex, alt.addresses[alt.readonly[i]], alt.address)
+				fmt.Printf("%d %s @ %s\n", keyIndex, alt.addresses[alt.readonly[i]], alt.address)
 				keyIndex++
+				readonlyAccounts = append(readonlyAccounts, alt.addresses[alt.readonly[i]].String())
+			}
+		}
+
+		allAccounts := make([]string, len(staticAccounts)+len(writeableAccounts)+len(readonlyAccounts))
+		copy(allAccounts, staticAccounts)
+		copy(allAccounts[len(staticAccounts):], writeableAccounts)
+		copy(allAccounts[len(staticAccounts)+len(writeableAccounts):], readonlyAccounts)
+
+		writeableAltIdxStart, readonlyAltIdxStart := uint64(len(staticAccounts)), uint64(len(staticAccounts)+len(writeableAccounts))
+		seenAccounts := make(map[string]struct{})
+
+		fmt.Println("-------- Parsed Instruction Accounts --------")
+		for i := 0; i < len(instructions); i++ {
+			fmt.Printf("Instruction %d\n", i)
+			programIdAddress, programIdMeta := getAccountAddressAndMeta(uint64(instructions[i].programIdIdx), writeableAltIdxStart, readonlyAltIdxStart, &messageHeader, allAccounts)
+			seenAccounts[programIdAddress] = struct{}{}
+			fmt.Printf("  Program ID: %d %s %s\n", instructions[i].programIdIdx, programIdAddress, programIdMeta)
+			fmt.Printf("  Data: %s\n", instructions[i].data)
+			for j := 0; j < len(instructions[i].accounts); j++ {
+				accountIndex := instructions[i].accounts[j]
+				accountAddress, accountMeta := getAccountAddressAndMeta(accountIndex, writeableAltIdxStart, readonlyAltIdxStart, &messageHeader, allAccounts)
+				seenAccounts[accountAddress] = struct{}{}
+				fmt.Printf("    Account %d: %s %s\n", accountIndex, accountAddress, accountMeta)
+			}
+		}
+
+		var unusedAccounts []string
+		accountsSeenCount := make(map[string]int)
+		for i := 0; i < len(allAccounts); i++ {
+			accountAddress := allAccounts[i]
+			accountsSeenCount[accountAddress]++
+			if _, ok := seenAccounts[accountAddress]; !ok {
+				unusedAccounts = append(unusedAccounts, accountAddress)
+			}
+		}
+
+		if len(unusedAccounts) > 0 {
+			fmt.Println("-------- [WARN] Unused Accounts --------")
+			for _, account := range unusedAccounts {
+				fmt.Printf("  %s\n", account)
+			}
+		}
+
+		var repeatedAccounts []string
+		for account, count := range accountsSeenCount {
+			if count > 1 {
+				repeatedAccounts = append(repeatedAccounts, account)
+			}
+		}
+		if len(repeatedAccounts) > 0 {
+			fmt.Println("-------- [WARN] Repeated Accounts --------")
+			for _, account := range repeatedAccounts {
+				fmt.Printf("  %s\n", account)
 			}
 		}
 	}
 	return nil
 }
 
+func getAccountAddressAndMeta(accountIndex, writeableAltIdxStart, readonlyAltIdxStart uint64, messageHeader *messageHeader, accounts []string) (string, string) {
+	var writable, signer bool
+	if accountIndex < messageHeader.requiredSignatures {
+		signer = true
+		writable = accountIndex < messageHeader.requiredSignatures-messageHeader.readonlySignedAccounts
+	} else {
+		if accountIndex < writeableAltIdxStart {
+			writable = accountIndex < writeableAltIdxStart-messageHeader.readonlyUnsignedAccounts
+		} else if accountIndex < readonlyAltIdxStart {
+			writable = true
+		}
+	}
+	return accounts[accountIndex], getAccountMetaLabel(writable, signer)
+}
+
+func getAccountMetaLabel(writable bool, signer bool) string {
+	var writableStr, signerStr string
+	if writable {
+		writableStr = "W"
+	}
+	if signer {
+		signerStr = "S"
+	}
+	return fmt.Sprintf("[%s%s]", writableStr, signerStr)
+}
+
 func fillDummySignature(txBytes []byte) []byte {
 	if txBytes[0] != 1 {
-		log.Print("signature not found, filling with dummy")
+		fmt.Print("signature not found, filling with dummy")
 		bytes64 := make([]byte, 64)
 		newBytes := append([]byte{1}, bytes64...)
 		newBytes = append(newBytes, txBytes...)
@@ -262,7 +369,7 @@ func DecodeTransaction(
 		}
 	}
 
-	log.Print(tx.String())
+	fmt.Print(tx.String())
 	return nil
 }
 
