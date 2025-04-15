@@ -259,7 +259,7 @@ func DecodeTransactionByteByByte(
 		writeableAltIdxStart, readonlyAltIdxStart := uint64(len(staticAccounts)), uint64(len(staticAccounts)+len(writeableAccounts))
 		seenAccounts := make(map[string]struct{})
 
-		fmt.Println("-------- Parsed Instruction Accounts --------")
+		fmt.Println("-------- Parsed Instruction Accounts [T] AddressLookupTable [W] writable [S] signer --------")
 		for i := 0; i < len(instructions); i++ {
 			fmt.Printf("Instruction %d\n", i)
 			programIdAddress, programIdMeta := getAccountAddressAndMeta(uint64(instructions[i].programIdIdx), writeableAltIdxStart, readonlyAltIdxStart, &messageHeader, allAccounts)
@@ -319,18 +319,21 @@ func getAccountAddressAndMeta(accountIndex, writeableAltIdxStart, readonlyAltIdx
 			writable = true
 		}
 	}
-	return accounts[accountIndex], getAccountMetaLabel(writable, signer)
+	return accounts[accountIndex], getAccountMetaLabel(writable, signer, accountIndex >= writeableAltIdxStart)
 }
 
-func getAccountMetaLabel(writable bool, signer bool) string {
-	var writableStr, signerStr string
+func getAccountMetaLabel(writable bool, signer bool, fromAlt bool) string {
+	var writableStr, signerStr, fromAltStr string
 	if writable {
 		writableStr = "W"
 	}
 	if signer {
 		signerStr = "S"
 	}
-	return fmt.Sprintf("[%s%s]", writableStr, signerStr)
+	if fromAlt {
+		fromAltStr = "T"
+	}
+	return fmt.Sprintf("[%s%s%s]", writableStr, signerStr, fromAltStr)
 }
 
 func fillDummySignature(txBytes []byte) []byte {
