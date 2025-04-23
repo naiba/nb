@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -61,6 +62,11 @@ var foundryExportAbiCmd = &cli.Command{
 
 func exportAbis(contracts []string, abis map[string]struct{}, dist string) error {
 	for _, contract := range contracts {
+		if !contractHasAnyEntities(contract) {
+			fmt.Printf("contract %s has no entities, skipping\n", contract)
+			continue
+		}
+
 		contract = strings.TrimPrefix(contract, "src/")
 		contractName, contractArtifact, err := getContractArtifact(contract)
 		if err != nil {
@@ -94,6 +100,16 @@ func exportAbis(contracts []string, abis map[string]struct{}, dist string) error
 		abis[targetAbiFile] = struct{}{}
 	}
 	return nil
+}
+
+func contractHasAnyEntities(contract string) bool {
+	contractContent, err := os.ReadFile(contract)
+	if err != nil {
+		return false
+	}
+	return bytes.Contains(contractContent, []byte("interface ")) ||
+		bytes.Contains(contractContent, []byte("library ")) ||
+		bytes.Contains(contractContent, []byte("contract "))
 }
 
 func getContractArtifact(contract string) (contractName string, contractArtifact string, err error) {
