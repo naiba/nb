@@ -338,7 +338,7 @@ func getAccountMetaLabel(writable bool, signer bool, fromAlt bool) string {
 
 func fillDummySignature(txBytes []byte) []byte {
 	if txBytes[0] != 1 {
-		fmt.Print("signature not found, filling with dummy")
+		fmt.Println("signature not found, filling with dummy")
 		bytes64 := make([]byte, 64)
 		newBytes := append([]byte{1}, bytes64...)
 		newBytes = append(newBytes, txBytes...)
@@ -372,7 +372,7 @@ func DecodeTransaction(
 		}
 	}
 
-	fmt.Print(tx.String())
+	fmt.Println(tx.String())
 	return nil
 }
 
