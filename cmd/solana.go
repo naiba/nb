@@ -106,11 +106,17 @@ var decodeTransactionCmd = &cli.Command{
 			Aliases: []string{"p"},
 			Usage:   "Whether to pretty print the output.",
 		},
+		&cli.BoolFlag{
+			Name:    "skip-fill-dummy-signature",
+			Aliases: []string{"sfds"},
+			Usage:   "Whether to skip filling dummy signature.",
+		},
 	},
 	Action: func(c *cli.Context) error {
 		rpcUrl := c.String("rpc")
 		txBase64 := c.String("tx-base64")
 		parseALT := c.Bool("load-alt")
+		skipFillDummySignature := c.Bool("skip-fill-dummy-signature")
 
 		if txBase64 == "" {
 			cli.ShowSubcommandHelp(c)
@@ -118,7 +124,7 @@ var decodeTransactionCmd = &cli.Command{
 		}
 
 		if c.Bool("pretty") {
-			return solanax.DecodeTransaction(c.Context, rpcUrl, txBase64, parseALT)
+			return solanax.DecodeTransaction(c.Context, rpcUrl, txBase64, parseALT, skipFillDummySignature)
 		}
 
 		return solanax.DecodeTransactionByteByByte(c.Context, rpcUrl, txBase64, parseALT)

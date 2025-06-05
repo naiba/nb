@@ -42,6 +42,13 @@ func VanityAddress(
 	upperOrLower bool,
 ) error {
 	log.Printf("REMINDER: address can not contains number 0, alphabet O, I, l")
+	illegalChars := []string{"0", "O", "I", "l"}
+	for _, char := range illegalChars {
+		if strings.Contains(contains, char) {
+			return fmt.Errorf("contains illegal character: %s", char)
+		}
+	}
+
 	containsLower := strings.ToLower(contains)
 	containsUpper := strings.ToUpper(contains)
 

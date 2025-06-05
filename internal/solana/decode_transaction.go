@@ -352,12 +352,15 @@ func DecodeTransaction(
 	rpcUrl string,
 	txBase64 string,
 	parseALT bool,
+	skipFillDummySignature bool,
 ) error {
 	data, err := base64.StdEncoding.DecodeString(txBase64)
 	if err != nil {
 		return err
 	}
-	data = fillDummySignature(data)
+	if !skipFillDummySignature {
+		data = fillDummySignature(data)
+	}
 
 	tx, err := solana.TransactionFromDecoder(bin.NewBinDecoder(data))
 	if err != nil {
