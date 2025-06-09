@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"math/big"
+	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -16,40 +17,33 @@ var (
 )
 
 type txContext struct {
-	txHash   common.Hash
-	sender   *common.Address
-	receiver *common.Address
-	amount   *big.Int
-	txIndex  int
+	txHash  common.Hash
+	txIndex int
+	amounts map[string]*big.Int
 }
 
 func CheckSandwichAttack(ctx context.Context, rpcUrl string, txHash string, userAddress string, tokenAddress string, maxCheckTxCount int) error {
 	userAddressParsed := common.HexToAddress(userAddress)
+	tokenAddressParsed := common.HexToAddress(tokenAddress)
+
 	ethClient, err := ethclient.Dial(rpcUrl)
 	if err != nil {
 		return err
 	}
 
-	userTxReceipt, err := ethClient.TransactionReceipt(ctx, common.HexToHash(txHash))
+	tx, _, err := ethClient.TransactionByHash(ctx, common.HexToHash(txHash))
 	if err != nil {
 		return err
 	}
-
-	var userAmount *big.Int
-	var userTokenSender *common.Address
-	for i := len(userTxReceipt.Logs) - 1; i >= 0; i-- {
-		amount, sender, receipt, err := parseTransferAmount(userTxReceipt.Logs[i], common.HexToAddress(tokenAddress))
-		if err != nil {
-			continue
-		}
-		if receipt.Cmp(userAddressParsed) == 0 {
-			userTokenSender = sender
-			userAmount = amount
-			break
-		}
+	userTxCtx, userTxReceipt, err := analysisTx(ctx, ethClient, tx, tokenAddressParsed, false)
+	if err != nil {
+		return err
 	}
-	if userAmount == nil {
-		return fmt.Errorf("user amount not found")
+	if userTxCtx == nil {
+		return fmt.Errorf("transaction %s cannot be analyzed", txHash)
+	}
+	if _, has := userTxCtx.amounts[userAddressParsed.Hex()]; !has {
+		return fmt.Errorf("transaction %s does not involve user address %s", txHash, userAddress)
 	}
 
 	block, err := ethClient.BlockByNumber(ctx, userTxReceipt.BlockNumber)
@@ -57,55 +51,38 @@ func CheckSandwichAttack(ctx context.Context, rpcUrl string, txHash string, user
 		return err
 	}
 
-	var relatedTxs []txContext
+	var relatedTxs []*txContext
 	txsInBlock := block.Transactions()
 
 	for i := int(userTxReceipt.TransactionIndex - 1); i >= 0; i-- {
 		tx := txsInBlock[i]
 		log.Printf("Checking buying tx: %d/%d %s", i, len(txsInBlock), tx.Hash().Hex())
-		ret, err := ethClient.TransactionReceipt(ctx, tx.Hash())
+		txCtx, _, err := analysisTx(ctx, ethClient, tx, tokenAddressParsed, false)
 		if err != nil {
 			return err
 		}
-		if ret.Status == types.ReceiptStatusFailed {
-			continue
-		}
-		for j := len(ret.Logs) - 1; j >= 0; j-- {
-			amount, sender, receiver, err := parseTransferAmount(ret.Logs[j], common.HexToAddress(tokenAddress))
-			if err != nil {
-				continue
-			}
-			relatedTxs = append(relatedTxs, txContext{txHash: tx.Hash(), sender: sender, receiver: receiver, amount: amount, txIndex: i})
+		if ctx != nil && len(txCtx.amounts) > 0 {
+			relatedTxs = append(relatedTxs, txCtx)
 		}
 		if int(userTxReceipt.TransactionIndex)-i > maxCheckTxCount {
 			break
 		}
 	}
 
-	relatedTxs = append(relatedTxs, txContext{txHash: userTxReceipt.TxHash, sender: userTokenSender, receiver: &userAddressParsed, amount: userAmount, txIndex: int(userTxReceipt.TransactionIndex)})
+	relatedTxs = append(relatedTxs, userTxCtx)
 
-OUTER:
 	for i := int(userTxReceipt.TransactionIndex + 1); i < len(txsInBlock); i++ {
 		tx := txsInBlock[i]
 		log.Printf("Checking selling tx: %d/%d %s", i, len(txsInBlock), tx.Hash().Hex())
-		ret, err := ethClient.TransactionReceipt(ctx, tx.Hash())
+		txCtx, _, err := analysisTx(ctx, ethClient, tx, tokenAddressParsed, true)
 		if err != nil {
 			return err
 		}
-		if ret.Status == types.ReceiptStatusFailed {
-			continue
+		if txCtx != nil {
+			relatedTxs = append(relatedTxs, txCtx)
 		}
-		for j := len(ret.Logs) - 1; j >= 0; j-- {
-			amount, sender, receiver, err := parseTransferAmount(ret.Logs[j], common.HexToAddress(tokenAddress))
-			if err != nil {
-				continue
-			}
-			for k := 0; k < len(relatedTxs); k++ {
-				if equalBnInPercent(amount, relatedTxs[k].amount, 100) && relatedTxs[k].receiver.Cmp(*sender) == 0 {
-					relatedTxs = append(relatedTxs, txContext{txHash: tx.Hash(), sender: sender, receiver: receiver, amount: amount, txIndex: int(ret.TransactionIndex)})
-					break OUTER
-				}
-			}
+		if checkSellTx(relatedTxs, txCtx) {
+			break
 		}
 		if i-int(userTxReceipt.TransactionIndex) > maxCheckTxCount {
 			break
@@ -115,30 +92,63 @@ OUTER:
 	log.Println(">>>>>>>>> Related transactions <<<<<<<<<")
 	for _, relatedTx := range relatedTxs {
 		var desc string
-		var addr common.Address
 		if relatedTx.txIndex == int(userTxReceipt.TransactionIndex) {
 			desc = "(user)"
-			addr = *relatedTx.receiver
-		} else if relatedTx.txIndex > int(userTxReceipt.TransactionIndex) {
-			addr = *relatedTx.sender
-		} else {
-			addr = *relatedTx.receiver
 		}
-		log.Printf("idx: %d%s, amount: %v, related-address: %s, tx: %s", relatedTx.txIndex, desc, relatedTx.amount, addr, relatedTx.txHash)
+		log.Printf("idx: %d%s, %s tx: %s", relatedTx.txIndex, desc, formatTxCtx(relatedTx), relatedTx.txHash)
 	}
 
 	return nil
 }
 
-func equalBnInPercent(bn1 *big.Int, bn2 *big.Int, percent int) bool {
-	percentBn := big.NewInt(int64(percent))
-	percent1 := new(big.Int).Div(bn1, percentBn)
-	percent2 := new(big.Int).Div(bn2, percentBn)
-	percentMin := percent1
-	if percent1.Cmp(percent2) < 0 {
-		percentMin = percent2
+func formatTxCtx(txCtx *txContext) string {
+	if txCtx == nil {
+		return "nil"
 	}
-	return new(big.Int).Abs(new(big.Int).Sub(bn1, bn2)).Cmp(percentMin) <= 0
+	if len(txCtx.amounts) == 0 {
+		return "[]"
+	}
+	var sb strings.Builder
+	sb.WriteString("transfers: [")
+	for addr, amt := range txCtx.amounts {
+		sb.WriteString(fmt.Sprintf("%s: %s, ", addr, amt.String()))
+	}
+	sb.WriteString("]")
+	return sb.String()
+}
+
+func analysisTx(ctx context.Context, ethClient *ethclient.Client, tx *types.Transaction, tokenAddress common.Address, reverseFromTo bool) (*txContext, *types.Receipt, error) {
+	ret, err := ethClient.TransactionReceipt(ctx, tx.Hash())
+	if err != nil {
+		return nil, nil, err
+	}
+	if ret.Status == types.ReceiptStatusFailed {
+		return nil, nil, nil
+	}
+	txCtx := txContext{txHash: tx.Hash(), txIndex: int(ret.TransactionIndex), amounts: make(map[string]*big.Int)}
+	for j := 0; j < len(ret.Logs); j++ {
+		amount, fromAddr, toAddr, err := parseTransferAmount(ret.Logs[j], tokenAddress)
+		if err != nil {
+			continue
+		}
+		if reverseFromTo {
+			fromAddr, toAddr = toAddr, fromAddr
+		}
+		if fromAmtOld, has := txCtx.amounts[fromAddr.Hex()]; has {
+			txCtx.amounts[fromAddr.Hex()] = subOrZero(fromAmtOld, amount)
+		}
+		if toAmtOld, has := txCtx.amounts[toAddr.Hex()]; has {
+			txCtx.amounts[toAddr.Hex()] = new(big.Int).Add(toAmtOld, amount)
+		} else {
+			txCtx.amounts[toAddr.Hex()] = amount
+		}
+	}
+	for addr, amt := range txCtx.amounts {
+		if amt.Cmp(big.NewInt(0)) == 0 {
+			delete(txCtx.amounts, addr)
+		}
+	}
+	return &txCtx, ret, nil
 }
 
 func parseTransferAmount(log *types.Log, token common.Address) (*big.Int, *common.Address, *common.Address, error) {
@@ -155,4 +165,25 @@ func parseTransferAmount(log *types.Log, token common.Address) (*big.Int, *commo
 	senderAddress := common.HexToAddress(log.Topics[1].Hex())
 	receiverAddress := common.HexToAddress(log.Topics[2].Hex())
 	return amount, &senderAddress, &receiverAddress, nil
+}
+
+func subOrZero(a, b *big.Int) *big.Int {
+	if a.Cmp(b) < 0 {
+		return big.NewInt(0)
+	}
+	return new(big.Int).Sub(a, b)
+}
+
+func checkSellTx(relatedTxs []*txContext, txCtx *txContext) bool {
+	if txCtx == nil {
+		return false
+	}
+	for _, relatedTx := range relatedTxs {
+		for addr := range txCtx.amounts {
+			if _, has := relatedTx.amounts[addr]; has {
+				return true
+			}
+		}
+	}
+	return false
 }
