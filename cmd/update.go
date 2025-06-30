@@ -1,21 +1,18 @@
 package cmd
 
 import (
+	"context"
 	"log"
 
 	"github.com/blang/semver"
 	"github.com/nezhahq/go-github-selfupdate/selfupdate"
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 )
-
-func init() {
-	rootCmd.Commands = append(rootCmd.Commands, updateCmd)
-}
 
 var updateCmd = &cli.Command{
 	Name:  "update",
 	Usage: "Update nb to the latest version.",
-	Action: func(c *cli.Context) error {
+	Action: func(ctx context.Context, cmd *cli.Command) error {
 		v := semver.MustParse(version)
 		latest, err := selfupdate.UpdateSelf(v, "naiba/nb")
 		if err != nil {
@@ -30,4 +27,8 @@ var updateCmd = &cli.Command{
 		}
 		return nil
 	},
+}
+
+func init() {
+	rootCmd.Commands = append(rootCmd.Commands, updateCmd)
 }

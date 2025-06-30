@@ -1,42 +1,38 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"net"
 
-	"github.com/urfave/cli/v2"
-
 	"github.com/naiba/nb/singleton"
+	"github.com/urfave/cli/v3"
 )
-
-func init() {
-	rootCmd.Commands = append(rootCmd.Commands, scpCmd)
-}
 
 var scpCmd = &cli.Command{
 	Name:            "scp",
 	Usage:           "Enhanced scp command.",
 	SkipFlagParsing: true,
-	Action: func(c *cli.Context) error {
+	Action: func(ctx context.Context, cmd *cli.Command) error {
 		var args []string
 
-		proxyName := c.String("proxy")
+		proxyName := cmd.String("proxy")
 		if proxyName != "" {
 			server, exists := singleton.Config.Proxy[proxyName]
 			if !exists {
-				return cli.Exit("proxy server not found: "+proxyName, 1)
+				return fmt.Errorf("proxy server not found: " + proxyName)
 			}
 			socksHost, socksPort, _ := net.SplitHostPort(server.Socks)
 			args = append(args, "-o", "ProxyCommand=nc -X 5 -x "+fmt.Sprintf("%s:%s", socksHost, socksPort)+" %h %p")
 		}
 
-		var extArgs = c.Args().Slice()
+		var extArgs = cmd.Args().Slice()
 
-		sshServerName := c.String("ssh-server")
+		sshServerName := cmd.String("ssh-server")
 		if sshServerName != "" {
 			server, exists := singleton.Config.SSH[sshServerName]
 			if !exists {
-				return cli.Exit("ssh server not found: "+sshServerName, 1)
+				return fmt.Errorf("ssh server not found: " + sshServerName)
 			}
 			args = append(args, "-i", server.Prikey)
 			args = append(args, "-P", server.GetPort())
@@ -47,4 +43,8 @@ var scpCmd = &cli.Command{
 
 		return ExecuteInHost(nil, "scp", append(args, extArgs...)...)
 	},
+}
+
+func init() {
+	rootCmd.Commands = append(rootCmd.Commands, scpCmd)
 }

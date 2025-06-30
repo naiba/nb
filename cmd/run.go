@@ -1,12 +1,13 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"runtime"
 	"strings"
 
 	"github.com/AppleGamer22/cocainate/session"
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 
 	nbInternal "github.com/naiba/nb/internal"
 )
@@ -18,7 +19,7 @@ func init() {
 var runCmd = &cli.Command{
 	Name:  "run",
 	Usage: "Commands run helper.",
-	Subcommands: []*cli.Command{
+	Commands: []*cli.Command{
 		awakeCmd,
 		beepCmd,
 		awakeBeepCmd,
@@ -37,8 +38,8 @@ var beepCmd = &cli.Command{
 	Aliases:         []string{"b"},
 	Usage:           "Beep when an command is finished.",
 	SkipFlagParsing: true,
-	Action: func(c *cli.Context) error {
-		errExec := BashScriptExecuteInHost(strings.Join(c.Args().Slice(), " "))
+	Action: func(ctx context.Context, cmd *cli.Command) error {
+		errExec := BashScriptExecuteInHost(strings.Join(cmd.Args().Slice(), " "))
 		errBeep := BashScriptExecuteInHost(getBeepCommand())
 		return errors.Join(errExec, errBeep)
 	},
@@ -49,16 +50,16 @@ var awakeCmd = &cli.Command{
 	Aliases:         []string{"a"},
 	Usage:           "Awake during the command is running.",
 	SkipFlagParsing: true,
-	Action: func(c *cli.Context) error {
-		cmd := nbInternal.BuildCommand(nil, "bash", "-c", strings.Join(c.Args().Slice(), " "))
-		if err := cmd.Start(); err != nil {
+	Action: func(ctx context.Context, cmd *cli.Command) error {
+		command := nbInternal.BuildCommand(nil, "bash", "-c", strings.Join(cmd.Args().Slice(), " "))
+		if err := command.Start(); err != nil {
 			return err
 		}
-		s := session.New(0, cmd.Process.Pid)
+		s := session.New(0, command.Process.Pid)
 		if err := s.Start(); err != nil {
 			return err
 		}
-		errExec := cmd.Wait()
+		errExec := command.Wait()
 		errSessionStop := s.Stop()
 		return errors.Join(errExec, errSessionStop)
 	},
@@ -69,16 +70,16 @@ var awakeBeepCmd = &cli.Command{
 	Aliases:         []string{"ab"},
 	Usage:           "Awake and beep when an command is finished.",
 	SkipFlagParsing: true,
-	Action: func(c *cli.Context) error {
-		cmd := nbInternal.BuildCommand(nil, "bash", "-c", strings.Join(c.Args().Slice(), " "))
-		if err := cmd.Start(); err != nil {
+	Action: func(ctx context.Context, cmd *cli.Command) error {
+		command := nbInternal.BuildCommand(nil, "bash", "-c", strings.Join(cmd.Args().Slice(), " "))
+		if err := command.Start(); err != nil {
 			return err
 		}
-		s := session.New(0, cmd.Process.Pid)
+		s := session.New(0, command.Process.Pid)
 		if err := s.Start(); err != nil {
 			return err
 		}
-		errExec := cmd.Wait()
+		errExec := command.Wait()
 		errSessionStop := s.Stop()
 		errBeep := BashScriptExecuteInHost(getBeepCommand())
 		return errors.Join(errExec, errSessionStop, errBeep)

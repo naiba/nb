@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 )
 
 func init() {
@@ -19,7 +20,7 @@ func init() {
 var foundryCmd = &cli.Command{
 	Name:  "foundry",
 	Usage: "Foundry helper.",
-	Subcommands: []*cli.Command{
+	Commands: []*cli.Command{
 		foundryExportAbiCmd,
 	},
 }
@@ -41,8 +42,8 @@ var foundryExportAbiCmd = &cli.Command{
 			Value:   "target/abi",
 		},
 	},
-	Action: func(c *cli.Context) error {
-		dist := c.String("dist")
+	Action: func(ctx context.Context, cmd *cli.Command) error {
+		dist := cmd.String("dist")
 		subFolderContracts, err := filepath.Glob("src/*/*.sol")
 		if err != nil {
 			return err

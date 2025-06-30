@@ -3,23 +3,19 @@ package cmd
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
-	"github.com/urfave/cli/v2"
-
 	solanax "github.com/naiba/nb/internal/solana"
+	"github.com/urfave/cli/v3"
 )
-
-func init() {
-	rootCmd.Commands = append(rootCmd.Commands, solanaCmd)
-}
 
 var solanaCmd = &cli.Command{
 	Name:  "solana",
 	Usage: "Solana helper.",
-	Subcommands: []*cli.Command{
+	Commands: []*cli.Command{
 		solanaVanityCmd,
 		sandwichAttackCheckCmd,
 		decodeTransactionCmd,
@@ -45,19 +41,18 @@ var getTransactionCmd = &cli.Command{
 			Usage:   "The transaction signature.",
 		},
 	},
-	Action: func(c *cli.Context) error {
-		rpcUrl := c.String("rpc")
-		signature := c.String("signature")
+	Action: func(ctx context.Context, cmd *cli.Command) error {
+		rpcUrl := cmd.String("rpc")
+		signature := cmd.String("signature")
 
 		if signature == "" {
-			cli.ShowSubcommandHelp(c)
 			return errors.New("transaction signature is required")
 		}
 
 		rpcClient := rpc.New(rpcUrl)
 		maxSupportedTransactionVersion := uint64(0)
 		ret, err := rpcClient.GetTransaction(
-			c.Context,
+			ctx,
 			solana.MustSignatureFromBase58(signature),
 			&rpc.GetTransactionOpts{
 				Encoding:                       solana.EncodingBase64,
@@ -71,7 +66,7 @@ var getTransactionCmd = &cli.Command{
 		if err != nil {
 			return err
 		}
-		if err := solanax.FillAddressLookupTable(c.Context, rpcClient, tx); err != nil {
+		if err := solanax.FillAddressLookupTable(ctx, rpcClient, tx); err != nil {
 			return err
 		}
 		log.Print(tx.String())
@@ -112,22 +107,21 @@ var decodeTransactionCmd = &cli.Command{
 			Usage:   "Whether to skip filling dummy signature.",
 		},
 	},
-	Action: func(c *cli.Context) error {
-		rpcUrl := c.String("rpc")
-		txBase64 := c.String("tx-base64")
-		parseALT := c.Bool("load-alt")
-		skipFillDummySignature := c.Bool("skip-fill-dummy-signature")
+	Action: func(ctx context.Context, cmd *cli.Command) error {
+		rpcUrl := cmd.String("rpc")
+		txBase64 := cmd.String("tx-base64")
+		parseALT := cmd.Bool("load-alt")
+		skipFillDummySignature := cmd.Bool("skip-fill-dummy-signature")
 
 		if txBase64 == "" {
-			cli.ShowSubcommandHelp(c)
-			return cli.Exit("Transaction is required", 1)
+			return errors.New("transaction is required")
 		}
 
-		if c.Bool("pretty") {
-			return solanax.DecodeTransaction(c.Context, rpcUrl, txBase64, parseALT, skipFillDummySignature)
+		if cmd.Bool("pretty") {
+			return solanax.DecodeTransaction(ctx, rpcUrl, txBase64, parseALT, skipFillDummySignature)
 		}
 
-		return solanax.DecodeTransactionByteByByte(c.Context, rpcUrl, txBase64, parseALT)
+		return solanax.DecodeTransactionByteByByte(ctx, rpcUrl, txBase64, parseALT)
 	},
 }
 
@@ -159,12 +153,12 @@ var sandwichAttackCheckCmd = &cli.Command{
 			Usage:   "The token to check. \"sol\" is for SOL, others are for SPL tokens.",
 		},
 	},
-	Action: func(c *cli.Context) error {
-		rpcUrl := c.String("rpc")
-		address := c.String("address")
-		signature := c.String("signature")
-		token := c.String("token")
-		return solanax.CheckSandwichAttack(context.Background(), rpcUrl, signature, address, token, 100)
+	Action: func(ctx context.Context, cmd *cli.Command) error {
+		rpcUrl := cmd.String("rpc")
+		address := cmd.String("address")
+		signature := cmd.String("signature")
+		token := cmd.String("token")
+		return solanax.CheckSandwichAttack(ctx, rpcUrl, signature, address, token, 100)
 	},
 }
 
@@ -199,23 +193,27 @@ var solanaVanityCmd = &cli.Command{
 			Value:   1,
 		},
 	},
-	Action: func(c *cli.Context) error {
-		threads := c.Int("threads")
-		contains := c.String("contains")
-		mode := c.Int("mode")
-		caseSensitive := c.Bool("case-sensitive")
-		upperOrLower := c.Bool("upper-or-lower")
+	Action: func(ctx context.Context, cmd *cli.Command) error {
+		threads := cmd.Int("threads")
+		contains := cmd.String("contains")
+		mode := cmd.Int("mode")
+		caseSensitive := cmd.Bool("case-sensitive")
+		upperOrLower := cmd.Bool("upper-or-lower")
 
 		if (mode < 1 || mode > 3) || contains == "" {
-			cli.ShowSubcommandHelpAndExit(c, 1)
+			return fmt.Errorf("mode must be 1, 2, or 3 and contains cannot be empty")
 		}
 
 		return solanax.VanityAddress(
-			threads,
+			int(threads),
 			contains,
-			mode,
+			int(mode),
 			caseSensitive,
 			upperOrLower,
 		)
 	},
+}
+
+func init() {
+	rootCmd.Commands = append(rootCmd.Commands, solanaCmd)
 }

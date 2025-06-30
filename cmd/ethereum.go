@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -10,7 +11,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 
 	"github.com/naiba/nb/internal/ethereum"
 )
@@ -22,7 +23,7 @@ func init() {
 var ethereumCmd = &cli.Command{
 	Name:  "ethereum",
 	Usage: "Ethereum helper.",
-	Subcommands: []*cli.Command{
+	Commands: []*cli.Command{
 		timestampToBlockNumberCmd,
 		checkSandwichAttackCmd,
 	},
@@ -60,29 +61,29 @@ var checkSandwichAttackCmd = &cli.Command{
 			Value:   20,
 		},
 	},
-	Action: func(c *cli.Context) error {
-		rpc := c.String("rpc")
+	Action: func(ctx context.Context, cmd *cli.Command) error {
+		rpc := cmd.String("rpc")
 		if rpc == "" {
 			return fmt.Errorf("rpc endpoint is required")
 		}
 
-		txHash := c.String("tx")
+		txHash := cmd.String("tx")
 		if txHash == "" {
 			return fmt.Errorf("transaction hash is required")
 		}
-		user := c.String("user")
+		user := cmd.String("user")
 		if user == "" {
 			return fmt.Errorf("user address is required")
 		}
-		token := c.String("token")
+		token := cmd.String("token")
 		if token == "" {
 			return fmt.Errorf("token address is required")
 		}
-		maxCheckTxCount := c.Int("max-check-tx-count")
+		maxCheckTxCount := cmd.Int("max-check-tx-count")
 		if maxCheckTxCount == 0 {
 			return fmt.Errorf("max check tx count is required")
 		}
-		return ethereum.CheckSandwichAttack(c.Context, rpc, txHash, user, token, maxCheckTxCount)
+		return ethereum.CheckSandwichAttack(ctx, rpc, txHash, user, token, int(maxCheckTxCount))
 	},
 }
 
@@ -129,106 +130,125 @@ func getBlockTimestampByNumber(rpc string, blockNumber *big.Int) (int64, error) 
 	}
 	blockTimestamp, ok := new(big.Int).SetString(blockResp.Result.(map[string]interface{})["timestamp"].(string)[2:], 16)
 	if !ok {
-		return 0, cli.Exit("Invalid block timestamp", 1)
+		return 0, fmt.Errorf("invalid block timestamp")
 	}
 	return blockTimestamp.Int64(), nil
 }
 
 var timestampToBlockNumberCmd = &cli.Command{
 	Name:    "timestamp-to-block-number",
-	Aliases: []string{"t2b"},
-	Usage:   "Convert timestamp to block number.",
+	Aliases: []string{"ttb"},
+	Usage:   "Get block number by timestamp.",
 	Flags: []cli.Flag{
-		&cli.Int64Flag{
+		&cli.IntFlag{
 			Name:    "timestamp",
 			Aliases: []string{"t"},
-			Usage:   "Timestamp to convert.",
+			Usage:   "Timestamp.",
 		},
 		&cli.StringFlag{
 			Name:    "rpc",
 			Aliases: []string{"r"},
 			Usage:   "Ethereum RPC endpoint.",
+			Value:   "https://bsc-rpc.publicnode.com",
 		},
 	},
-	Action: func(c *cli.Context) error {
-		rpc := c.String("rpc")
+	Action: func(ctx context.Context, cmd *cli.Command) error {
+		rpc := cmd.String("rpc")
 		if rpc == "" {
-			return cli.Exit("RPC endpoint is required", 1)
-		}
-		targetTimestap := c.Int64("timestamp")
-		if targetTimestap == 0 {
-			return cli.Exit("Timestamp is required", 1)
-		}
-		blockNumberResp, err := jsonRpcCall(rpc, "eth_blockNumber", []interface{}{})
-		if err != nil {
-			return err
-		}
-		blockNumber, ok := new(big.Int).SetString(blockNumberResp.Result.(string)[2:], 16)
-		if !ok {
-			return cli.Exit("Invalid block number", 1)
+			return fmt.Errorf("RPC endpoint is required")
 		}
 
-		timestampA, err := getBlockTimestampByNumber(rpc, blockNumber)
-		if err != nil {
-			return err
+		timestamp := cmd.Int("timestamp")
+		if timestamp == 0 {
+			return fmt.Errorf("timestamp is required")
 		}
-		timestampB, err := getBlockTimestampByNumber(rpc, new(big.Int).Sub(blockNumber, big.NewInt(100)))
+
+		blockNumber, err := getBlockNumberByTimestamp(rpc, int64(timestamp))
 		if err != nil {
 			return err
 		}
 
-		avgBlockTime := (timestampA - timestampB) / 100
-		if avgBlockTime == 0 {
-			avgBlockTime = 1
-		}
-		log.Printf("Average block time: %d", avgBlockTime)
-
-		blockNumber.Add(blockNumber, big.NewInt((targetTimestap-timestampA)/avgBlockTime))
-		log.Printf("Estimate block number: %s", blockNumber.Text(10))
-
-		blockToTimestampCache := make(map[int64]int64)
-		for {
-			blockTimestamp, err := getBlockTimestampByNumber(rpc, blockNumber)
-			if err != nil {
-				return err
-			}
-			blockToTimestampCache[blockNumber.Int64()] = blockTimestamp
-
-			if blockTimestamp == targetTimestap {
-				break
-			}
-
-			blockDiff := (targetTimestap - blockTimestamp) / avgBlockTime
-			if (targetTimestap-blockTimestamp)%avgBlockTime != 0 {
-				if targetTimestap > blockTimestamp {
-					blockDiff++
-				} else {
-					blockDiff--
-				}
-			}
-			if math.Abs(float64(blockDiff)) <= 10 {
-				blockDiff = int64(math.Copysign(1, float64(blockDiff)))
-			}
-			log.Printf("===> Block number: %s, timestamp: %d, blockDiff: %d", blockNumber.Text(10), blockTimestamp, blockDiff)
-
-			if blockTimestamp > targetTimestap {
-				olderBlockTimestamp, exists := blockToTimestampCache[blockNumber.Int64()-1]
-				if exists && olderBlockTimestamp < targetTimestap {
-					break
-				}
-			}
-
-			if blockTimestamp < targetTimestap {
-				newerBlockTimestamp, exists := blockToTimestampCache[blockNumber.Int64()+1]
-				if exists && newerBlockTimestamp > targetTimestap {
-					break
-				}
-			}
-
-			blockNumber.Add(blockNumber, big.NewInt(blockDiff))
-		}
-
-		log.Printf("Block number: %s", blockNumber.Text(10))
+		fmt.Println(blockNumber)
 		return nil
 	},
+}
+
+func getBlockNumberByTimestamp(rpc string, targetTimestamp int64) (uint64, error) {
+	// Get the latest block number
+	blockNumberResp, err := jsonRpcCall(rpc, "eth_blockNumber", []interface{}{})
+	if err != nil {
+		return 0, err
+	}
+	blockNumber, ok := new(big.Int).SetString(blockNumberResp.Result.(string)[2:], 16)
+	if !ok {
+		return 0, fmt.Errorf("invalid block number")
+	}
+
+	// Get timestamps for calculating average block time
+	timestampA, err := getBlockTimestampByNumber(rpc, blockNumber)
+	if err != nil {
+		return 0, err
+	}
+	timestampB, err := getBlockTimestampByNumber(rpc, new(big.Int).Sub(blockNumber, big.NewInt(100)))
+	if err != nil {
+		return 0, err
+	}
+
+	// Calculate average block time
+	avgBlockTime := (timestampA - timestampB) / 100
+	if avgBlockTime == 0 {
+		avgBlockTime = 1
+	}
+	log.Printf("Average block time: %d", avgBlockTime)
+
+	// Initial estimate
+	blockNumber.Add(blockNumber, big.NewInt((targetTimestamp-timestampA)/avgBlockTime))
+	log.Printf("Estimate block number: %s", blockNumber.Text(10))
+
+	// Binary search with cache
+	blockToTimestampCache := make(map[int64]int64)
+	for {
+		blockTimestamp, err := getBlockTimestampByNumber(rpc, blockNumber)
+		if err != nil {
+			return 0, err
+		}
+		blockToTimestampCache[blockNumber.Int64()] = blockTimestamp
+
+		if blockTimestamp == targetTimestamp {
+			break
+		}
+
+		blockDiff := (targetTimestamp - blockTimestamp) / avgBlockTime
+		if (targetTimestamp-blockTimestamp)%avgBlockTime != 0 {
+			if targetTimestamp > blockTimestamp {
+				blockDiff++
+			} else {
+				blockDiff--
+			}
+		}
+		if math.Abs(float64(blockDiff)) <= 10 {
+			blockDiff = int64(math.Copysign(1, float64(blockDiff)))
+		}
+		log.Printf("===> Block number: %s, timestamp: %d, blockDiff: %d", blockNumber.Text(10), blockTimestamp, blockDiff)
+
+		// Check if we're close enough with cached values
+		if blockTimestamp > targetTimestamp {
+			olderBlockTimestamp, exists := blockToTimestampCache[blockNumber.Int64()-1]
+			if exists && olderBlockTimestamp < targetTimestamp {
+				break
+			}
+		}
+
+		if blockTimestamp < targetTimestamp {
+			newerBlockTimestamp, exists := blockToTimestampCache[blockNumber.Int64()+1]
+			if exists && newerBlockTimestamp > targetTimestamp {
+				break
+			}
+		}
+
+		blockNumber.Add(blockNumber, big.NewInt(blockDiff))
+	}
+
+	log.Printf("Block number: %s", blockNumber.Text(10))
+	return blockNumber.Uint64(), nil
 }

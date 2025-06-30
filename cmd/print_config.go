@@ -1,9 +1,10 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 
 	"github.com/naiba/nb/singleton"
 )
@@ -15,7 +16,7 @@ func init() {
 var printConfigCmd = &cli.Command{
 	Name:  "print-config",
 	Usage: "Prints the current configuration.",
-	Action: func(c *cli.Context) error {
+	Action: func(ctx context.Context, cmd *cli.Command) error {
 		fmt.Printf("%+v", singleton.Config)
 		return nil
 	},

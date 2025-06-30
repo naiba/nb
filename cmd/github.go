@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,18 +10,14 @@ import (
 	"strings"
 
 	"github.com/google/go-github/v47/github"
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 	"golang.org/x/oauth2"
 )
-
-func init() {
-	rootCmd.Commands = append(rootCmd.Commands, githubCmd)
-}
 
 var githubCmd = &cli.Command{
 	Name:  "github",
 	Usage: "GitHub helpers.",
-	Subcommands: []*cli.Command{
+	Commands: []*cli.Command{
 		githubCoauthoredByCommand,
 		githubPurgeArtifactsCommand,
 		githubPurgeReleaseCommand,
@@ -40,8 +37,8 @@ type GitHubUserInfoResponse struct {
 var githubCoauthoredByCommand = &cli.Command{
 	Name:    "co-authored-by",
 	Aliases: []string{"cab"},
-	Action: func(c *cli.Context) error {
-		users := c.Args().Slice()
+	Action: func(ctx context.Context, cmd *cli.Command) error {
+		users := cmd.Args().Slice()
 		for i := 0; i < len(users); i++ {
 			resp, err := http.Get("https://api.github.com/users/" + users[i])
 			if err != nil {
@@ -81,16 +78,16 @@ var githubPurgeArtifactsCommand = &cli.Command{
 			Aliases: []string{"e"},
 		},
 	},
-	Action: func(ctx *cli.Context) error {
+	Action: func(ctx context.Context, cmd *cli.Command) error {
 		ts := oauth2.StaticTokenSource(
-			&oauth2.Token{AccessToken: ctx.String("access-token")},
+			&oauth2.Token{AccessToken: cmd.String("access-token")},
 		)
-		tc := oauth2.NewClient(ctx.Context, ts)
+		tc := oauth2.NewClient(ctx, ts)
 		client := github.NewClient(tc)
 		var opts = &github.RepositoryListOptions{}
 		var allRepos []*github.Repository
 		for opts != nil {
-			repos, resp, err := client.Repositories.List(ctx.Context, "", opts)
+			repos, resp, err := client.Repositories.List(ctx, "", opts)
 			if err != nil {
 				return err
 			}
@@ -102,7 +99,7 @@ var githubPurgeArtifactsCommand = &cli.Command{
 			allRepos = append(allRepos, repos...)
 		}
 
-		ignores := ctx.StringSlice("ignore")
+		ignores := cmd.StringSlice("ignore")
 		var ignoresMap = make(map[string]bool)
 		for _, ignore := range ignores {
 			ignoresMap[strings.ToLower(ignore)] = true
@@ -113,14 +110,14 @@ var githubPurgeArtifactsCommand = &cli.Command{
 			if ignoresMap[strings.ToLower(repoName)] {
 				continue
 			}
-			if !strings.EqualFold(*repo.Owner.Login, ctx.String("user")) {
+			if !strings.EqualFold(*repo.Owner.Login, cmd.String("user")) {
 				continue
 			}
 			log.Printf("Processing %s/%s", *repo.Owner.Login, *repo.Name)
 			var opts = &github.ListOptions{}
 			var allArtifacts []*github.Artifact
 			for opts != nil {
-				artifacts, resp, err := client.Actions.ListArtifacts(ctx.Context, *repo.Owner.Login, *repo.Name, opts)
+				artifacts, resp, err := client.Actions.ListArtifacts(ctx, *repo.Owner.Login, *repo.Name, opts)
 				if err != nil {
 					return err
 				}
@@ -133,7 +130,7 @@ var githubPurgeArtifactsCommand = &cli.Command{
 			}
 			log.Printf("Deleting %d artifacts", len(allArtifacts))
 			for _, artifact := range allArtifacts {
-				_, err := client.Actions.DeleteArtifact(ctx.Context, *repo.Owner.Login, *repo.Name, *artifact.ID)
+				_, err := client.Actions.DeleteArtifact(ctx, *repo.Owner.Login, *repo.Name, *artifact.ID)
 				if err != nil {
 					return err
 				}
@@ -162,17 +159,17 @@ var githubPurgeReleaseCommand = &cli.Command{
 			Aliases: []string{"r"},
 		},
 	},
-	Action: func(ctx *cli.Context) error {
+	Action: func(ctx context.Context, cmd *cli.Command) error {
 		ts := oauth2.StaticTokenSource(
-			&oauth2.Token{AccessToken: ctx.String("access-token")},
+			&oauth2.Token{AccessToken: cmd.String("access-token")},
 		)
-		tc := oauth2.NewClient(ctx.Context, ts)
+		tc := oauth2.NewClient(ctx, ts)
 		client := github.NewClient(tc)
 		var opts = &github.RepositoryListOptions{}
 
 		var allRepos []*github.Repository
 		for opts != nil {
-			repos, resp, err := client.Repositories.List(ctx.Context, "", opts)
+			repos, resp, err := client.Repositories.List(ctx, "", opts)
 			if err != nil {
 				return err
 			}
@@ -184,7 +181,7 @@ var githubPurgeReleaseCommand = &cli.Command{
 			allRepos = append(allRepos, repos...)
 		}
 
-		repositories := ctx.StringSlice("repository")
+		repositories := cmd.StringSlice("repository")
 		var repositoriesMap = make(map[string]bool)
 		for _, repository := range repositories {
 			repositoriesMap[strings.ToLower(repository)] = true
@@ -195,7 +192,7 @@ var githubPurgeReleaseCommand = &cli.Command{
 			if !repositoriesMap[strings.ToLower(repoName)] {
 				continue
 			}
-			if !strings.EqualFold(*repo.Owner.Login, ctx.String("user")) {
+			if !strings.EqualFold(*repo.Owner.Login, cmd.String("user")) {
 				continue
 			}
 			log.Printf("Processing %s/%s", *repo.Owner.Login, *repo.Name)
@@ -203,7 +200,7 @@ var githubPurgeReleaseCommand = &cli.Command{
 			var opts = &github.ListOptions{}
 			var allReleases []*github.RepositoryRelease
 			for opts != nil {
-				releases, resp, err := client.Repositories.ListReleases(ctx.Context, *repo.Owner.Login, *repo.Name, opts)
+				releases, resp, err := client.Repositories.ListReleases(ctx, *repo.Owner.Login, *repo.Name, opts)
 				if err != nil {
 					return err
 				}
@@ -216,7 +213,7 @@ var githubPurgeReleaseCommand = &cli.Command{
 			}
 			log.Printf("Deleting %d releases", len(allReleases))
 			for _, release := range allReleases {
-				_, err := client.Repositories.DeleteRelease(ctx.Context, *repo.Owner.Login, *repo.Name, *release.ID)
+				_, err := client.Repositories.DeleteRelease(ctx, *repo.Owner.Login, *repo.Name, *release.ID)
 				if err != nil {
 					return err
 				}
@@ -245,17 +242,17 @@ var githubPuregeTagsCommand = &cli.Command{
 			Aliases: []string{"r"},
 		},
 	},
-	Action: func(ctx *cli.Context) error {
+	Action: func(ctx context.Context, cmd *cli.Command) error {
 		ts := oauth2.StaticTokenSource(
-			&oauth2.Token{AccessToken: ctx.String("access-token")},
+			&oauth2.Token{AccessToken: cmd.String("access-token")},
 		)
-		tc := oauth2.NewClient(ctx.Context, ts)
+		tc := oauth2.NewClient(ctx, ts)
 		client := github.NewClient(tc)
 		var opts = &github.RepositoryListOptions{}
 
 		var allRepos []*github.Repository
 		for opts != nil {
-			repos, resp, err := client.Repositories.List(ctx.Context, "", opts)
+			repos, resp, err := client.Repositories.List(ctx, "", opts)
 			if err != nil {
 				return err
 			}
@@ -267,7 +264,7 @@ var githubPuregeTagsCommand = &cli.Command{
 			allRepos = append(allRepos, repos...)
 		}
 
-		repositories := ctx.StringSlice("repository")
+		repositories := cmd.StringSlice("repository")
 		var repositoriesMap = make(map[string]bool)
 		for _, repository := range repositories {
 			repositoriesMap[strings.ToLower(repository)] = true
@@ -278,7 +275,7 @@ var githubPuregeTagsCommand = &cli.Command{
 			if !repositoriesMap[strings.ToLower(repoName)] {
 				continue
 			}
-			if !strings.EqualFold(*repo.Owner.Login, ctx.String("user")) {
+			if !strings.EqualFold(*repo.Owner.Login, cmd.String("user")) {
 				continue
 			}
 			log.Printf("Processing %s/%s", *repo.Owner.Login, *repo.Name)
@@ -286,7 +283,7 @@ var githubPuregeTagsCommand = &cli.Command{
 			var opts = &github.ListOptions{}
 			var allTags []*github.RepositoryTag
 			for opts != nil {
-				tags, resp, err := client.Repositories.ListTags(ctx.Context, *repo.Owner.Login, *repo.Name, opts)
+				tags, resp, err := client.Repositories.ListTags(ctx, *repo.Owner.Login, *repo.Name, opts)
 				if err != nil {
 					return err
 				}
@@ -299,7 +296,7 @@ var githubPuregeTagsCommand = &cli.Command{
 			}
 			log.Printf("Deleting %d tags", len(allTags))
 			for _, tag := range allTags {
-				_, err := client.Git.DeleteRef(ctx.Context, *repo.Owner.Login, *repo.Name, fmt.Sprintf("tags/%s", *tag.Name))
+				_, err := client.Git.DeleteRef(ctx, *repo.Owner.Login, *repo.Name, fmt.Sprintf("tags/%s", *tag.Name))
 				if err != nil {
 					return err
 				}
@@ -309,4 +306,8 @@ var githubPuregeTagsCommand = &cli.Command{
 
 		return nil
 	},
+}
+
+func init() {
+	rootCmd.Commands = append(rootCmd.Commands, githubCmd)
 }

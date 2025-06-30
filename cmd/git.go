@@ -1,11 +1,12 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"strings"
 
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 )
 
 func init() {
@@ -16,28 +17,28 @@ var gitCmd = &cli.Command{
 	Name:            "git",
 	Usage:           "Enhanced git command.",
 	SkipFlagParsing: true,
-	Subcommands: []*cli.Command{
+	Commands: []*cli.Command{
 		gitCommitCommand,
 		gitWhoCommand,
 		gitSetupCommand,
 		gitSalonCommand,
 	},
-	Action: func(c *cli.Context) error {
-		_, env, err := GetGitSSHCommandEnv(c.String("git-user"), c.String("proxy"))
+	Action: func(ctx context.Context, cmd *cli.Command) error {
+		_, env, err := GetGitSSHCommandEnv(cmd.String("git-user"), cmd.String("proxy"))
 		if err != nil {
-			return cli.Exit(err.Error(), 1)
+			return err
 		}
-		return ExecuteInHost(env, "git", c.Args().Slice()...)
+		return ExecuteInHost(env, "git", cmd.Args().Slice()...)
 	},
 }
 
 var gitSetupCommand = &cli.Command{
 	Name:  "setup",
 	Usage: "Setup or tear-down the git account config locally.",
-	Action: func(c *cli.Context) error {
-		account, env, err := GetGitSSHCommandEnv(c.String("git-user"), c.String("proxy"))
+	Action: func(ctx context.Context, cmd *cli.Command) error {
+		account, env, err := GetGitSSHCommandEnv(cmd.String("git-user"), cmd.String("proxy"))
 		if err != nil {
-			return cli.Exit(err.Error(), 1)
+			return err
 		}
 		if account == nil {
 			if err := BashScriptExecuteInHost("git config --local --unset core.sshCommand && git config --local --unset user.name && git config --local --unset user.email"); err != nil {
@@ -55,23 +56,23 @@ var gitSetupCommand = &cli.Command{
 				return err
 			}
 		}
-		return gitWhoCommand.Action(c)
+		return gitWhoCommand.Action(ctx, cmd)
 	},
 }
 
 var gitCommitCommand = &cli.Command{
 	Name:            "commit",
 	SkipFlagParsing: true,
-	Action: func(c *cli.Context) error {
-		account, env, err := GetGitSSHCommandEnv(c.String("git-user"), c.String("proxy"))
+	Action: func(ctx context.Context, cmd *cli.Command) error {
+		account, env, err := GetGitSSHCommandEnv(cmd.String("git-user"), cmd.String("proxy"))
 		if err != nil {
-			return cli.Exit(err.Error(), 1)
+			return err
 		}
 		args := []string{"commit"}
 		if account != nil {
 			args = append(args, "--author=\""+account.Name+" <"+account.Email+">\"")
 		}
-		args = append(args, c.Args().Slice()...)
+		args = append(args, cmd.Args().Slice()...)
 		return ExecuteInHost(env, "git", args...)
 	},
 }
@@ -81,13 +82,13 @@ var getGitDirectoryName = regexp.MustCompile(`\/([^\/]*)\.git`)
 var gitSalonCommand = &cli.Command{
 	Name:            "salon",
 	SkipFlagParsing: true,
-	Action: func(c *cli.Context) error {
+	Action: func(ctx context.Context, cmd *cli.Command) error {
 		args := []string{"clone"}
-		_, env, err := GetGitSSHCommandEnv(c.String("git-user"), c.String("proxy"))
+		_, env, err := GetGitSSHCommandEnv(cmd.String("git-user"), cmd.String("proxy"))
 		if err != nil {
 			return err
 		}
-		args = append(args, c.Args().Slice()...)
+		args = append(args, cmd.Args().Slice()...)
 
 		matched := getGitDirectoryName.FindAllStringSubmatch(strings.Join(args, " "), 1)
 		if len(matched[0]) != 2 {
@@ -98,10 +99,10 @@ var gitSalonCommand = &cli.Command{
 		}
 
 		args = []string{"cd", matched[0][1], "&&", "nb"}
-		if c.String("proxy") != "" {
-			args = append(args, "-p "+c.String("proxy"))
+		if cmd.String("proxy") != "" {
+			args = append(args, "-p "+cmd.String("proxy"))
 		}
-		args = append(args, "-gu "+c.String("git-user"))
+		args = append(args, "-gu "+cmd.String("git-user"))
 		args = append(args, "git setup")
 
 		return BashScriptExecuteInHost(strings.Join(args, " "))
@@ -110,7 +111,7 @@ var gitSalonCommand = &cli.Command{
 
 var gitWhoCommand = &cli.Command{
 	Name: "whoami",
-	Action: func(c *cli.Context) error {
+	Action: func(ctx context.Context, cmd *cli.Command) error {
 		return BashScriptExecuteInHost("git config --local --list|grep \"user.email\\|user.name\\|core.sshcommand\\|gpg.format\\|user.signingkey\"")
 	},
 }

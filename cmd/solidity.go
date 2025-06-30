@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"math/big"
 	"os"
@@ -12,7 +13,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 )
 
 func init() {
@@ -22,7 +23,7 @@ func init() {
 var solidityCmd = &cli.Command{
 	Name:  "solidity",
 	Usage: "Solidity helper.",
-	Subcommands: []*cli.Command{
+	Commands: []*cli.Command{
 		unflattenCmd,
 		create2vanityCmd,
 	},
@@ -72,12 +73,12 @@ var create2vanityCmd = &cli.Command{
 			Usage:   "The constructor arguments. uint256:123123",
 		},
 	},
-	Action: func(c *cli.Context) error {
-		prefix := strings.ToLower(c.String("prefix"))
-		deployer := c.String("deployer")
-		saltPrefix := c.String("salt-prefix")
-		contractBin := c.String("contract-bin")
-		constructorArgs := c.StringSlice("constructor-args")
+	Action: func(ctx context.Context, cmd *cli.Command) error {
+		prefix := strings.ToLower(cmd.String("prefix"))
+		deployer := cmd.String("deployer")
+		saltPrefix := cmd.String("salt-prefix")
+		contractBin := cmd.String("contract-bin")
+		constructorArgs := cmd.StringSlice("constructor-args")
 
 		var args abi.Arguments
 		var vals []interface{}
@@ -135,10 +136,10 @@ var unflattenCmd = &cli.Command{
 			Usage:   "Keep dependencies.",
 		},
 	},
-	Action: func(c *cli.Context) error {
-		file := c.String("file")
-		outputPath := c.String("output")
-		keepDependencies := c.Bool("keep-dependencies")
+	Action: func(ctx context.Context, cmd *cli.Command) error {
+		file := cmd.String("file")
+		outputPath := cmd.String("output")
+		keepDependencies := cmd.Bool("keep-dependencies")
 
 		f, err := os.OpenFile(file, os.O_CREATE, 0644)
 		if err != nil {

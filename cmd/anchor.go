@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -10,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 )
 
 func init() {
@@ -20,7 +21,7 @@ func init() {
 var anchorCmd = &cli.Command{
 	Name:  "anchor",
 	Usage: "Anchor helper.",
-	Subcommands: []*cli.Command{
+	Commands: []*cli.Command{
 		switchingEnvCmd,
 		namingEnvCmd,
 	},
@@ -31,8 +32,8 @@ var namingEnvCmd = &cli.Command{
 	Aliases:         []string{"ne"},
 	Usage:           "Naming anchor env.",
 	SkipFlagParsing: true,
-	Action: func(c *cli.Context) error {
-		envName := c.Args().First()
+	Action: func(ctx context.Context, cmd *cli.Command) error {
+		envName := cmd.Args().First()
 		if envName == "" {
 			return errors.New("env name is required")
 		}
@@ -87,8 +88,8 @@ var switchingEnvCmd = &cli.Command{
 	Aliases:         []string{"se"},
 	Usage:           "Switching anchor env.",
 	SkipFlagParsing: true,
-	Action: func(c *cli.Context) error {
-		envName := c.Args().First()
+	Action: func(ctx context.Context, cmd *cli.Command) error {
+		envName := cmd.Args().First()
 		if envName == "" {
 			return errors.New("env name is required")
 		}

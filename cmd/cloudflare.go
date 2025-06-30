@@ -1,15 +1,15 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"os/exec"
 
-	"github.com/urfave/cli/v2"
-
 	"github.com/naiba/nb/internal"
+	"github.com/urfave/cli/v3"
 )
 
 func init() {
@@ -19,7 +19,7 @@ func init() {
 var cloudflareCmd = &cli.Command{
 	Name:        "cloudflare",
 	Description: "Run a web interface for bulk management of DNS records, Page Rules, and Rulesets.",
-	Action: func(c *cli.Context) error {
+	Action: func(ctx context.Context, cmd *cli.Command) error {
 		listener, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
 			panic(err)

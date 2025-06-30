@@ -1,13 +1,14 @@
 package cmd
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"math/big"
 
 	"github.com/mr-tron/base58"
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 )
 
 func init() {
@@ -31,10 +32,10 @@ var convertCmd = &cli.Command{
 			Required: true,
 		},
 	},
-	Action: func(ctx *cli.Context) error {
-		in := ctx.String("in")
-		out := ctx.String("out")
-		val := ctx.Args().First()
+	Action: func(ctx context.Context, cmd *cli.Command) error {
+		in := cmd.String("in")
+		out := cmd.String("out")
+		val := cmd.Args().First()
 
 		b, err := decodeToBytes(in, val)
 		if err != nil {

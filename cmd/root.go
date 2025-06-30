@@ -1,18 +1,19 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
 
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 
 	"github.com/naiba/nb/singleton"
 )
 
 var version = "1.0.0"
 
-var rootCmd = &cli.App{
+var rootCmd = &cli.Command{
 	Name:        "nb",
 	Usage:       "Nb is not only no bullshit.",
 	Description: "Author: naiba https://github.com/naiba",
@@ -36,7 +37,7 @@ var rootCmd = &cli.App{
 			Name:    "config-path",
 			Aliases: []string{"c"},
 			Usage:   "Choose a config file path.",
-			EnvVars: []string{"NB_CONFIG_PATH"},
+			Sources: cli.EnvVars("NB_CONFIG_PATH"),
 		},
 		&cli.BoolFlag{
 			Name:    "version",
@@ -44,27 +45,28 @@ var rootCmd = &cli.App{
 			Usage:   "Print version.",
 		},
 	},
-	Before: func(c *cli.Context) error {
-		return singleton.Init(c.String("config-path"))
+	Before: func(ctx context.Context, cmd *cli.Command) error {
+		return singleton.Init(cmd.String("config-path"))
 	},
-	Action: func(c *cli.Context) error {
-		if c.Bool("version") {
+	Action: func(ctx context.Context, cmd *cli.Command) error {
+		if cmd.Bool("version") {
 			fmt.Println(version)
 			return nil
 		}
 
-		args := c.Args().Slice()
+		args := cmd.Args().Slice()
 		if len(args) == 0 {
-			return cli.ShowAppHelp(c)
+			fmt.Println(cmd.Usage)
+			return nil
 		}
 
 		var env []string
 
-		proxyName := c.String("proxy")
+		proxyName := cmd.String("proxy")
 		if proxyName != "" {
 			server, exists := singleton.Config.Proxy[proxyName]
 			if !exists {
-				return cli.Exit("proxy server not found: "+proxyName, 1)
+				return fmt.Errorf("proxy server not found: " + proxyName)
 			}
 			socksHost, socksPort, _ := net.SplitHostPort(server.Socks)
 			env = append(env, fmt.Sprintf("all_proxy=socks5h://%s:%s", socksHost, socksPort))
@@ -83,5 +85,5 @@ var rootCmd = &cli.App{
 }
 
 func Execute() error {
-	return rootCmd.Run(os.Args)
+	return rootCmd.Run(context.Background(), os.Args)
 }
