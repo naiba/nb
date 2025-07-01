@@ -8,10 +8,12 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/naiba/nb/model"
-	"github.com/naiba/nb/singleton"
 	"github.com/urfave/cli/v3"
 	"golang.org/x/crypto/ssh"
+
+	"github.com/naiba/nb/internal"
+	"github.com/naiba/nb/model"
+	"github.com/naiba/nb/singleton"
 )
 
 var sshCmd = &cli.Command{
@@ -42,7 +44,7 @@ var sshCmd = &cli.Command{
 			args = append(args, server.Login+"@"+server.Host)
 		}
 
-		return ExecuteInHost(nil, "ssh", append(args, cmd.Args().Slice()...)...)
+		return internal.ExecuteInHost(nil, "ssh", append(args, cmd.Args().Slice()...)...)
 	},
 }
 

@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"github.com/urfave/cli/v3"
+
+	"github.com/naiba/nb/internal"
 )
 
 func init() {
@@ -19,6 +21,6 @@ var flutterCmd = &cli.Command{
 		if err != nil {
 			return err
 		}
-		return ExecuteInHost(env, "flutter", cmd.Args().Slice()...)
+		return internal.ExecuteInHost(env, "flutter", cmd.Args().Slice()...)
 	},
 }

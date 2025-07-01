@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/naiba/nb/singleton"
 	"github.com/urfave/cli/v3"
+
+	"github.com/naiba/nb/internal"
+	"github.com/naiba/nb/singleton"
 )
 
 var scpCmd = &cli.Command{
@@ -41,7 +43,7 @@ var scpCmd = &cli.Command{
 			}
 		}
 
-		return ExecuteInHost(nil, "scp", append(args, extArgs...)...)
+		return internal.ExecuteInHost(nil, "scp", append(args, extArgs...)...)
 	},
 }
 

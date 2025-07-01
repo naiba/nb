@@ -7,6 +7,7 @@ import (
 
 	"github.com/urfave/cli/v3"
 
+	"github.com/naiba/nb/internal"
 	"github.com/naiba/nb/singleton"
 )
 
@@ -27,7 +28,7 @@ var ncCmd = &cli.Command{
 			args = append(args, "-x", fmt.Sprintf("%s:%s", socksHost, socksPort))
 		}
 
-		return ExecuteInHost(nil, "nc", append(args, cmd.Args().Slice()...)...)
+		return internal.ExecuteInHost(nil, "nc", append(args, cmd.Args().Slice()...)...)
 	},
 }
 

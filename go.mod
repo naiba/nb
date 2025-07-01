@@ -18,6 +18,8 @@ require (
 	github.com/samber/lo v1.49.1
 	github.com/shopspring/decimal v1.3.1
 	github.com/spf13/viper v1.20.0
+	github.com/tidwall/gjson v1.18.0
+	github.com/tidwall/sjson v1.2.5
 	github.com/urfave/cli/v3 v3.0.0-alpha9
 	golang.org/x/crypto v0.36.0
 	golang.org/x/oauth2 v0.25.0
@@ -92,6 +94,8 @@ require (
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/supranational/blst v0.3.14 // indirect
 	github.com/tcnksm/go-gitconfig v0.1.2 // indirect
+	github.com/tidwall/match v1.1.1 // indirect
+	github.com/tidwall/pretty v1.2.0 // indirect
 	github.com/tklauser/go-sysconf v0.3.14 // indirect
 	github.com/tklauser/numcpus v0.9.0 // indirect
 	github.com/ulikunitz/xz v0.5.11 // indirect

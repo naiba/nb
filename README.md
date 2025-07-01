@@ -40,4 +40,8 @@ nb -gu naiba git commit -a -m "test"
 nb solidity create2vanity -p 0xb300000 -d 0x13b0D85CcB8......CA081AE9beF2 --sp com.example. \
     --cb 0x60806001600160401b03601f6......dccf7284c10517a35c6 \
     --ca address:0xEe7b429Ea01......D4e95D5D24AE8 --ca address:0x57FE1CB49......d821e5e95
+
+# Tron transaction debug trace
+# You need to install foundry first
+nb tron cast-call -- 0x68A4926BFf4c67297F5431ca8807339CFB9DAbA8 "owner()returns(address)" --trace
 ```

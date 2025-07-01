@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/urfave/cli/v3"
+
+	"github.com/naiba/nb/internal"
 )
 
 func init() {
@@ -28,7 +30,7 @@ var gitCmd = &cli.Command{
 		if err != nil {
 			return err
 		}
-		return ExecuteInHost(env, "git", cmd.Args().Slice()...)
+		return internal.ExecuteInHost(env, "git", cmd.Args().Slice()...)
 	},
 }
 
@@ -41,7 +43,7 @@ var gitSetupCommand = &cli.Command{
 			return err
 		}
 		if account == nil {
-			if err := BashScriptExecuteInHost("git config --local --unset core.sshCommand && git config --local --unset user.name && git config --local --unset user.email"); err != nil {
+			if err := internal.BashScriptExecuteInHost("git config --local --unset core.sshCommand && git config --local --unset user.name && git config --local --unset user.email"); err != nil {
 				return err
 			}
 		} else {
@@ -52,7 +54,7 @@ var gitSetupCommand = &cli.Command{
 			if account.SSHSignKey != "" {
 				command += " && git config --local gpg.format ssh && git config --local user.signingkey " + account.SSHSignKey
 			}
-			if err := BashScriptExecuteInHost(command); err != nil {
+			if err := internal.BashScriptExecuteInHost(command); err != nil {
 				return err
 			}
 		}
@@ -73,7 +75,7 @@ var gitCommitCommand = &cli.Command{
 			args = append(args, "--author=\""+account.Name+" <"+account.Email+">\"")
 		}
 		args = append(args, cmd.Args().Slice()...)
-		return ExecuteInHost(env, "git", args...)
+		return internal.ExecuteInHost(env, "git", args...)
 	},
 }
 
@@ -94,7 +96,7 @@ var gitSalonCommand = &cli.Command{
 		if len(matched[0]) != 2 {
 			return fmt.Errorf("failed to parse git directory name from %s", args)
 		}
-		if err := ExecuteInHost(env, "git", args...); err != nil {
+		if err := internal.ExecuteInHost(env, "git", args...); err != nil {
 			return err
 		}
 
@@ -105,13 +107,13 @@ var gitSalonCommand = &cli.Command{
 		args = append(args, "-gu "+cmd.String("git-user"))
 		args = append(args, "git setup")
 
-		return BashScriptExecuteInHost(strings.Join(args, " "))
+		return internal.BashScriptExecuteInHost(strings.Join(args, " "))
 	},
 }
 
 var gitWhoCommand = &cli.Command{
 	Name: "whoami",
 	Action: func(ctx context.Context, cmd *cli.Command) error {
-		return BashScriptExecuteInHost("git config --local --list|grep \"user.email\\|user.name\\|core.sshcommand\\|gpg.format\\|user.signingkey\"")
+		return internal.BashScriptExecuteInHost("git config --local --list|grep \"user.email\\|user.name\\|core.sshcommand\\|gpg.format\\|user.signingkey\"")
 	},
 }

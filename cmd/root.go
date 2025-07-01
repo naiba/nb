@@ -8,6 +8,7 @@ import (
 
 	"github.com/urfave/cli/v3"
 
+	"github.com/naiba/nb/internal"
 	"github.com/naiba/nb/singleton"
 )
 
@@ -78,9 +79,9 @@ var rootCmd = &cli.Command{
 		}
 
 		if len(args) > 1 {
-			return ExecuteInHost(env, args[0], args[1:]...)
+			return internal.ExecuteInHost(env, args[0], args[1:]...)
 		}
-		return ExecuteInHost(env, args[0])
+		return internal.ExecuteInHost(env, args[0])
 	},
 }
 

@@ -9,7 +9,7 @@ import (
 	"github.com/AppleGamer22/cocainate/session"
 	"github.com/urfave/cli/v3"
 
-	nbInternal "github.com/naiba/nb/internal"
+	"github.com/naiba/nb/internal"
 )
 
 func init() {
@@ -39,8 +39,8 @@ var beepCmd = &cli.Command{
 	Usage:           "Beep when an command is finished.",
 	SkipFlagParsing: true,
 	Action: func(ctx context.Context, cmd *cli.Command) error {
-		errExec := BashScriptExecuteInHost(strings.Join(cmd.Args().Slice(), " "))
-		errBeep := BashScriptExecuteInHost(getBeepCommand())
+		errExec := internal.BashScriptExecuteInHost(strings.Join(cmd.Args().Slice(), " "))
+		errBeep := internal.BashScriptExecuteInHost(getBeepCommand())
 		return errors.Join(errExec, errBeep)
 	},
 }
@@ -51,7 +51,7 @@ var awakeCmd = &cli.Command{
 	Usage:           "Awake during the command is running.",
 	SkipFlagParsing: true,
 	Action: func(ctx context.Context, cmd *cli.Command) error {
-		command := nbInternal.BuildCommand(nil, "bash", "-c", strings.Join(cmd.Args().Slice(), " "))
+		command := internal.BuildCommand(nil, "bash", "-c", strings.Join(cmd.Args().Slice(), " "))
 		if err := command.Start(); err != nil {
 			return err
 		}
@@ -71,7 +71,7 @@ var awakeBeepCmd = &cli.Command{
 	Usage:           "Awake and beep when an command is finished.",
 	SkipFlagParsing: true,
 	Action: func(ctx context.Context, cmd *cli.Command) error {
-		command := nbInternal.BuildCommand(nil, "bash", "-c", strings.Join(cmd.Args().Slice(), " "))
+		command := internal.BuildCommand(nil, "bash", "-c", strings.Join(cmd.Args().Slice(), " "))
 		if err := command.Start(); err != nil {
 			return err
 		}
@@ -81,7 +81,7 @@ var awakeBeepCmd = &cli.Command{
 		}
 		errExec := command.Wait()
 		errSessionStop := s.Stop()
-		errBeep := BashScriptExecuteInHost(getBeepCommand())
+		errBeep := internal.BashScriptExecuteInHost(getBeepCommand())
 		return errors.Join(errExec, errSessionStop, errBeep)
 	},
 }

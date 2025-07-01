@@ -7,6 +7,7 @@ import (
 
 	"github.com/urfave/cli/v3"
 
+	"github.com/naiba/nb/internal"
 	"github.com/naiba/nb/singleton"
 )
 
@@ -42,7 +43,7 @@ var rsyncCmd = &cli.Command{
 			}
 		}
 
-		return ExecuteInHost(nil, "rsync", append(args, extArgs...)...)
+		return internal.ExecuteInHost(nil, "rsync", append(args, extArgs...)...)
 	},
 }
 

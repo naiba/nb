@@ -6,20 +6,9 @@ import (
 	"net"
 	"strings"
 
-	"github.com/naiba/nb/internal"
 	"github.com/naiba/nb/model"
 	"github.com/naiba/nb/singleton"
 )
-
-func ExecuteInHost(env []string, name string, args ...string) error {
-	command := internal.BuildCommand(env, name, args...)
-	return command.Run()
-}
-
-func BashScriptExecuteInHost(line string) error {
-	command := internal.BuildCommand(nil, "bash", "-c", line)
-	return command.Run()
-}
 
 func GetGitSSHCommandEnv(user string, proxyName string) (*model.GitAccount, []string, error) {
 	if user == "" {
