@@ -1,11 +1,15 @@
 package solana
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"strconv"
 
 	bin "github.com/gagliardetto/binary"
@@ -39,13 +43,16 @@ func DecodeTransactionByteByByte(
 	rpcUrl string,
 	txBase64 string,
 	parseALT bool,
-) error {
-	// Fill fake signature
+	insertByte0 bool,
+) (string, error) {
 	txBytes, err := base64.StdEncoding.DecodeString(txBase64)
 	if err != nil {
-		return err
+		return txBase64, err
 	}
-	txBytes = fillDummySignature(txBytes)
+
+	if insertByte0 {
+		txBytes = append([]byte{0}, txBytes...)
+	}
 
 	hexStr := hex.EncodeToString(txBytes)
 	fmt.Printf("transaction length: %d, hex: %s", len(txBytes), hexStr)
@@ -140,7 +147,7 @@ func DecodeTransactionByteByByte(
 		programIdIndexHex := readN(1)
 		programIdIndex, err := strconv.ParseUint(programIdIndexHex, 16, 8)
 		if err != nil {
-			return errors.Join(fmt.Errorf("program id index: %s", programIdIndexHex), err)
+			return txBase64, errors.Join(fmt.Errorf("program id index: %s", programIdIndexHex), err)
 		}
 		fmt.Println(programIdIndexHex, "Program ID index:", programIdIndex, staticAccounts[programIdIndex])
 		instructions[i].programIdIdx = int(programIdIndex)
@@ -177,7 +184,7 @@ func DecodeTransactionByteByByte(
 		address := readN(32)
 		addressBytes, err := hex.DecodeString(address)
 		if err != nil {
-			return err
+			return txBase64, err
 		}
 		fmt.Println(address, "Address:", i, base58.Encode(addressBytes))
 
@@ -224,12 +231,12 @@ func DecodeTransactionByteByByte(
 				solana.MustPublicKeyFromBase58(alts[i].address),
 			)
 			if err != nil {
-				return err
+				return txBase64, err
 			}
 
 			tableContent, err := lookup.DecodeAddressLookupTableState(info.GetBinary())
 			if err != nil {
-				return err
+				return txBase64, err
 			}
 			alts[i].addresses = tableContent.Addresses
 		}
@@ -304,7 +311,15 @@ func DecodeTransactionByteByByte(
 			}
 		}
 	}
-	return nil
+
+	var finalData bytes.Buffer
+	finalData.WriteByte(byte(messageHeader.requiredSignatures))
+	for i := signatureLen; i < messageHeader.requiredSignatures; i++ {
+		finalData.Write(make([]byte, 64))
+	}
+	finalData.Write(txBytes[1+signatureLen*64:])
+
+	return base64.StdEncoding.EncodeToString(finalData.Bytes()), nil
 }
 
 func getAccountAddressAndMeta(accountIndex, writeableAltIdxStart, readonlyAltIdxStart uint64, messageHeader *messageHeader, accounts []string) (string, string) {
@@ -336,47 +351,40 @@ func getAccountMetaLabel(writable bool, signer bool, fromAlt bool) string {
 	return fmt.Sprintf("[%s%s%s]", writableStr, signerStr, fromAltStr)
 }
 
-func fillDummySignature(txBytes []byte) []byte {
-	if txBytes[0] != 1 {
-		fmt.Println("signature not found, filling with dummy")
-		bytes64 := make([]byte, 64)
-		newBytes := append([]byte{1}, bytes64...)
-		newBytes = append(newBytes, txBytes...)
-		return newBytes
-	}
-	return txBytes
-}
-
 func DecodeTransaction(
 	ctx context.Context,
 	rpcUrl string,
 	txBase64 string,
 	parseALT bool,
-	skipFillDummySignature bool,
-) error {
+	insertByte0 bool,
+) (string, error) {
 	data, err := base64.StdEncoding.DecodeString(txBase64)
 	if err != nil {
-		return err
+		return txBase64, err
 	}
-	if !skipFillDummySignature {
-		data = fillDummySignature(data)
+
+	if insertByte0 {
+		data = append([]byte{0}, data...)
 	}
 
 	tx, err := solana.TransactionFromDecoder(bin.NewBinDecoder(data))
 	if err != nil {
-		return err
+		return txBase64, err
 	}
 
 	if parseALT {
 		rpcClient := rpc.New(rpcUrl)
 		err := FillAddressLookupTable(ctx, rpcClient, tx)
 		if err != nil {
-			return err
+			return txBase64, err
 		}
 	}
 
-	fmt.Println(tx.String())
-	return nil
+	for i := len(tx.Signatures); i < int(tx.Message.Header.NumRequiredSignatures); i++ {
+		tx.Signatures = append(tx.Signatures, solana.Signature{})
+	}
+
+	return tx.MustToBase64(), err
 }
 
 func FillAddressLookupTable(ctx context.Context, rpcClient *rpc.Client, tx *solana.Transaction) error {
@@ -413,4 +421,48 @@ func FillAddressLookupTable(ctx context.Context, rpcClient *rpc.Client, tx *sola
 	}
 
 	return nil
+}
+
+func Simulate(rpc string, txBase64 string) error {
+	reqData := make(map[string]interface{})
+	reqData["jsonrpc"] = "2.0"
+	reqData["id"] = 1
+	reqData["method"] = "simulateTransaction"
+	reqData["params"] = []interface{}{
+		txBase64,
+		map[string]interface{}{
+			"encoding":               "base64",
+			"sigVerify":              false,
+			"replaceRecentBlockhash": true,
+		},
+	}
+	reqBody, err := json.Marshal(reqData)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request data: %w", err)
+	}
+	resp, err := http.Post(rpc, "application/json", bytes.NewBuffer(reqBody))
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("request failed with status code %d", resp.StatusCode)
+	}
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+	fmt.Println(jsonPretty(respBody))
+	return nil
+}
+
+func jsonPretty(data []byte) string {
+	var parsed interface{}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return string(data)
+	}
+	if prettyData, err := json.MarshalIndent(parsed, "", "  "); err == nil {
+		return string(prettyData)
+	}
+	return string(data)
 }

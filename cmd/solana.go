@@ -102,26 +102,42 @@ var decodeTransactionCmd = &cli.Command{
 			Usage:   "Whether to pretty print the output.",
 		},
 		&cli.BoolFlag{
-			Name:    "skip-fill-dummy-signature",
-			Aliases: []string{"sfds"},
-			Usage:   "Whether to skip filling dummy signature.",
+			Name:    "signature",
+			Aliases: []string{"s"},
+			Usage:   "Insert byte 0 to the head",
+		},
+		&cli.BoolFlag{
+			Name:    "simulate",
+			Aliases: []string{"d"},
+			Usage:   "Whether to simulate the transaction.",
 		},
 	},
 	Action: func(ctx context.Context, cmd *cli.Command) error {
 		rpcUrl := cmd.String("rpc")
 		txBase64 := cmd.String("tx-base64")
 		parseALT := cmd.Bool("load-alt")
-		skipFillDummySignature := cmd.Bool("skip-fill-dummy-signature")
+		insertByte0 := cmd.Bool("signature")
+		simulate := cmd.Bool("simulate")
+		pretty := cmd.Bool("pretty")
 
 		if txBase64 == "" {
 			return errors.New("transaction is required")
 		}
 
-		if cmd.Bool("pretty") {
-			return solanax.DecodeTransaction(ctx, rpcUrl, txBase64, parseALT, skipFillDummySignature)
+		var ret string
+		var err error
+
+		if pretty {
+			ret, err = solanax.DecodeTransaction(ctx, rpcUrl, txBase64, parseALT, insertByte0)
+		} else {
+			ret, err = solanax.DecodeTransactionByteByByte(ctx, rpcUrl, txBase64, parseALT, insertByte0)
 		}
 
-		return solanax.DecodeTransactionByteByByte(ctx, rpcUrl, txBase64, parseALT)
+		if simulate && err == nil {
+			err = solanax.Simulate(rpcUrl, ret)
+		}
+
+		return err
 	},
 }
 
