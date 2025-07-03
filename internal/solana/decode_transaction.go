@@ -43,14 +43,14 @@ func DecodeTransactionByteByByte(
 	rpcUrl string,
 	txBase64 string,
 	parseALT bool,
-	insertByte0 bool,
+	noSignature bool,
 ) (string, error) {
 	txBytes, err := base64.StdEncoding.DecodeString(txBase64)
 	if err != nil {
 		return txBase64, err
 	}
 
-	if insertByte0 {
+	if noSignature {
 		txBytes = append([]byte{0}, txBytes...)
 	}
 
@@ -356,14 +356,14 @@ func DecodeTransaction(
 	rpcUrl string,
 	txBase64 string,
 	parseALT bool,
-	insertByte0 bool,
+	noSignature bool,
 ) (string, error) {
 	data, err := base64.StdEncoding.DecodeString(txBase64)
 	if err != nil {
 		return txBase64, err
 	}
 
-	if insertByte0 {
+	if noSignature {
 		data = append([]byte{0}, data...)
 	}
 

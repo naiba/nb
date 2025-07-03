@@ -102,9 +102,9 @@ var decodeTransactionCmd = &cli.Command{
 			Usage:   "Whether to pretty print the output.",
 		},
 		&cli.BoolFlag{
-			Name:    "signature",
+			Name:    "no-signature",
 			Aliases: []string{"s"},
-			Usage:   "Insert byte 0 to the head",
+			Usage:   "This data has no signature only the message.",
 		},
 		&cli.BoolFlag{
 			Name:    "simulate",
@@ -116,7 +116,7 @@ var decodeTransactionCmd = &cli.Command{
 		rpcUrl := cmd.String("rpc")
 		txBase64 := cmd.String("tx-base64")
 		parseALT := cmd.Bool("load-alt")
-		insertByte0 := cmd.Bool("signature")
+		noSignature := cmd.Bool("no-signature")
 		simulate := cmd.Bool("simulate")
 		pretty := cmd.Bool("pretty")
 
@@ -128,9 +128,9 @@ var decodeTransactionCmd = &cli.Command{
 		var err error
 
 		if pretty {
-			ret, err = solanax.DecodeTransaction(ctx, rpcUrl, txBase64, parseALT, insertByte0)
+			ret, err = solanax.DecodeTransaction(ctx, rpcUrl, txBase64, parseALT, noSignature)
 		} else {
-			ret, err = solanax.DecodeTransactionByteByByte(ctx, rpcUrl, txBase64, parseALT, insertByte0)
+			ret, err = solanax.DecodeTransactionByteByByte(ctx, rpcUrl, txBase64, parseALT, noSignature)
 		}
 
 		if simulate && err == nil {
