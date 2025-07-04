@@ -384,6 +384,8 @@ func DecodeTransaction(
 		tx.Signatures = append(tx.Signatures, solana.Signature{})
 	}
 
+	fmt.Println(tx.String())
+
 	return tx.MustToBase64(), err
 }
 
