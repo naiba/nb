@@ -31,6 +31,9 @@ var castCallCmd = &cli.Command{
 			Name:    "block",
 			Aliases: []string{"b"},
 		},
+		&cli.StringSliceFlag{
+			Name: "override-code",
+		},
 	},
 	Action: func(ctx context.Context, cmd *cli.Command) error {
 		rpcUrl := cmd.String("rpc-url")
@@ -46,7 +49,7 @@ var castCallCmd = &cli.Command{
 				return fmt.Errorf("block number is not supported yet")
 			}
 		}
-		return tron.CastCall(rpcUrl, cmd.Args().Slice())
+		return tron.CastCall(rpcUrl, cmd.StringSlice("override-code"), cmd.Args().Slice())
 	},
 }
 

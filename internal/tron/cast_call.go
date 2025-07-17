@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,7 +20,19 @@ import (
 	"github.com/naiba/nb/internal"
 )
 
-func CastCall(rpc string, otherArgs []string) error {
+func CastCall(rpc string, overrideCode []string, otherArgs []string) error {
+	var overrideCodeMap sync.Map
+	if len(overrideCode) > 0 {
+		for _, arg := range overrideCode {
+			parts := strings.Split(arg, ":")
+			if len(parts) == 2 {
+				overrideCodeMap.Store(strings.ToLower(parts[0]), parts[1])
+				continue
+			}
+			return fmt.Errorf("invalid override code: %s", arg)
+		}
+	}
+
 	targetURL, err := url.Parse(rpc)
 	if err != nil {
 		return fmt.Errorf("invalid RPC URL: %v", err)
@@ -34,7 +47,8 @@ func CastCall(rpc string, otherArgs []string) error {
 	port := listener.Addr().(*net.TCPAddr).Port
 
 	handler := &proxyHandler{
-		target: targetURL,
+		target:          targetURL,
+		overrideCodeMap: &overrideCodeMap,
 	}
 
 	server := &http.Server{
@@ -58,7 +72,7 @@ func CastCall(rpc string, otherArgs []string) error {
 	go func() {
 		finalError = internal.ExecuteInHost(nil, "cast", append([]string{
 			"call",
-			"-r",
+			"--rpc-url",
 			fmt.Sprintf("http://localhost:%d%s", port, targetURL.Path),
 		}, otherArgs...)...)
 		closeOnce.Do(func() { close(closeCh) })
@@ -76,7 +90,8 @@ type JSONRPCResponse struct {
 }
 
 type proxyHandler struct {
-	target *url.URL
+	target          *url.URL
+	overrideCodeMap *sync.Map
 }
 
 func (p *proxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -113,7 +128,20 @@ func (p *proxyHandler) getMockResponse(req []byte) ([]byte, *JSONRPCResponse) {
 		req, _ = sjson.DeleteBytes(req, "params.0.input")
 		req, _ = sjson.DeleteBytes(req, "params.0.chainId")
 		return req, nil
-	case "eth_getBalance", "eth_getCode", "eth_getStorageAt":
+	case "eth_getCode":
+		contractAddr := strings.ToLower(gjson.GetBytes(req, "params.0").String())
+		overrideCode, ok := p.overrideCodeMap.Load(contractAddr)
+		if ok {
+			var resp JSONRPCResponse
+			resp.JSONRPC = gjson.GetBytes(req, "jsonrpc").String()
+			resp.Result = overrideCode
+			resp.ID = gjson.GetBytes(req, "id").Value()
+			return req, &resp
+		}
+		req, _ = sjson.DeleteBytes(req, "params.-1")
+		req, _ = sjson.SetBytes(req, "params.-1", "latest")
+		return req, nil
+	case "eth_getBalance", "eth_getStorageAt":
 		req, _ = sjson.DeleteBytes(req, "params.-1")
 		req, _ = sjson.SetBytes(req, "params.-1", "latest")
 		return req, nil
@@ -173,7 +201,10 @@ func (p *proxyHandler) forwardRequestWithBody(w http.ResponseWriter, r *http.Req
 		log.Printf("failed to copy response body: %v", err)
 	}
 
-	if gjson.GetBytes(body, "method").String() == "eth_getBlockByNumber" {
+	method := gjson.GetBytes(body, "method").String()
+
+	switch method {
+	case "eth_getBlockByNumber":
 		respBodyStr := respBody.String()
 		respBodyStr, _ = sjson.Set(respBodyStr, "result.stateRoot", getRndHash())
 		respBodyStr, _ = sjson.Set(respBodyStr, "result.requestsHash", getRndHash())
