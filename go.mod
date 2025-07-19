@@ -22,7 +22,7 @@ require (
 	github.com/tidwall/sjson v1.2.5
 	github.com/urfave/cli/v3 v3.0.0-alpha9
 	golang.org/x/crypto v0.36.0
-	golang.org/x/oauth2 v0.25.0
+	golang.org/x/oauth2 v0.27.0
 	golang.org/x/sync v0.12.0
 )
 
