@@ -61,7 +61,7 @@ func CheckSandwichAttack(ctx context.Context, rpcUrl string, txHash string, user
 		if err != nil {
 			return err
 		}
-		if ctx != nil && len(txCtx.amounts) > 0 {
+		if txCtx != nil && len(txCtx.amounts) > 0 {
 			relatedTxs = append(relatedTxs, txCtx)
 		}
 		if int(userTxReceipt.TransactionIndex)-i > maxCheckTxCount {
@@ -78,7 +78,7 @@ func CheckSandwichAttack(ctx context.Context, rpcUrl string, txHash string, user
 		if err != nil {
 			return err
 		}
-		if txCtx != nil {
+		if txCtx != nil && len(txCtx.amounts) > 0 {
 			relatedTxs = append(relatedTxs, txCtx)
 		}
 		if checkSellTx(relatedTxs, txCtx) {
