@@ -14,6 +14,29 @@ var tronCmd = &cli.Command{
 	Usage: "Tron helper.",
 	Commands: []*cli.Command{
 		castCallCmd,
+		rpcProxyCmd,
+	},
+}
+
+var rpcProxyCmd = &cli.Command{
+	Name:  "rpc-proxy",
+	Usage: "Tron RPC proxy.",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:    "rpc-url",
+			Aliases: []string{"r"},
+			Value:   "https://api.trongrid.io/jsonrpc",
+		},
+		&cli.StringSliceFlag{
+			Name: "override-code",
+		},
+	},
+	Action: func(ctx context.Context, cmd *cli.Command) error {
+		rpcUrl := cmd.String("rpc-url")
+		if rpcUrl == "" {
+			return fmt.Errorf("RPC endpoint is required")
+		}
+		return tron.RpcProxy(rpcUrl, cmd.StringSlice("override-code"))
 	},
 }
 
