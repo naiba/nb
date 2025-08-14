@@ -16,9 +16,8 @@ func init() {
 }
 
 var gitCmd = &cli.Command{
-	Name:            "git",
-	Usage:           "Enhanced git command.",
-	SkipFlagParsing: true,
+	Name:  "git",
+	Usage: "Enhanced git command.",
 	Commands: []*cli.Command{
 		gitCommitCommand,
 		gitWhoCommand,

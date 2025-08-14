@@ -13,9 +13,8 @@ func init() {
 }
 
 var flutterCmd = &cli.Command{
-	Name:            "flutter",
-	Usage:           "Enhanced flutter command.",
-	SkipFlagParsing: true,
+	Name:  "flutter",
+	Usage: "Enhanced flutter command.",
 	Action: func(ctx context.Context, cmd *cli.Command) error {
 		_, env, err := GetGitSSHCommandEnv(cmd.String("git-user"), cmd.String("proxy"))
 		if err != nil {
