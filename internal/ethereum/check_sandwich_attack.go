@@ -35,7 +35,7 @@ func CheckSandwichAttack(ctx context.Context, rpcUrl string, txHash string, user
 	if err != nil {
 		return err
 	}
-	userTxCtx, userTxReceipt, err := analysisTx(ctx, ethClient, tx, tokenAddressParsed, false)
+	userTxCtx, userTxReceipt, err := analysisTx(ctx, ethClient, tx, userAddressParsed, tokenAddressParsed, false)
 	if err != nil {
 		return err
 	}
@@ -57,7 +57,7 @@ func CheckSandwichAttack(ctx context.Context, rpcUrl string, txHash string, user
 	for i := int(userTxReceipt.TransactionIndex - 1); i >= 0; i-- {
 		tx := txsInBlock[i]
 		log.Printf("Checking buying tx: %d/%d %s", i, len(txsInBlock), tx.Hash().Hex())
-		txCtx, _, err := analysisTx(ctx, ethClient, tx, tokenAddressParsed, false)
+		txCtx, _, err := analysisTx(ctx, ethClient, tx, userAddressParsed, tokenAddressParsed, false)
 		if err != nil {
 			return err
 		}
@@ -74,7 +74,7 @@ func CheckSandwichAttack(ctx context.Context, rpcUrl string, txHash string, user
 	for i := int(userTxReceipt.TransactionIndex + 1); i < len(txsInBlock); i++ {
 		tx := txsInBlock[i]
 		log.Printf("Checking selling tx: %d/%d %s", i, len(txsInBlock), tx.Hash().Hex())
-		txCtx, _, err := analysisTx(ctx, ethClient, tx, tokenAddressParsed, true)
+		txCtx, _, err := analysisTx(ctx, ethClient, tx, userAddressParsed, tokenAddressParsed, true)
 		if err != nil {
 			return err
 		}
@@ -117,7 +117,7 @@ func formatTxCtx(txCtx *txContext) string {
 	return sb.String()
 }
 
-func analysisTx(ctx context.Context, ethClient *ethclient.Client, tx *types.Transaction, tokenAddress common.Address, reverseFromTo bool) (*txContext, *types.Receipt, error) {
+func analysisTx(ctx context.Context, ethClient *ethclient.Client, tx *types.Transaction, userAddress common.Address, tokenAddress common.Address, reverseFromTo bool) (*txContext, *types.Receipt, error) {
 	ret, err := ethClient.TransactionReceipt(ctx, tx.Hash())
 	if err != nil {
 		return nil, nil, err
@@ -144,7 +144,7 @@ func analysisTx(ctx context.Context, ethClient *ethclient.Client, tx *types.Tran
 		}
 	}
 	for addr, amt := range txCtx.amounts {
-		if amt.Cmp(big.NewInt(0)) == 0 {
+		if amt.Cmp(big.NewInt(0)) == 0 && !strings.EqualFold(addr, userAddress.Hex()) {
 			delete(txCtx.amounts, addr)
 		}
 	}
