@@ -3,16 +3,21 @@ package cmd
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"math/big"
 	"os"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strings"
 
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/pelletier/go-toml/v2"
 	"github.com/urfave/cli/v3"
 )
 
@@ -26,7 +31,232 @@ var solidityCmd = &cli.Command{
 	Commands: []*cli.Command{
 		unflattenCmd,
 		create2vanityCmd,
+		diamondCutUpgradeReportCmd,
 	},
+}
+
+var facetsTy, _ = abi.NewType("tuple[]", "Facet", []abi.ArgumentMarshaling{
+	{
+		Name: "facetAddress",
+		Type: "address",
+	},
+	{
+		Name: "functionSelectors",
+		Type: "bytes4[]",
+	}})
+
+var facetsMethod = abi.NewMethod("facets", "facets", abi.Function, "public", false, false, abi.Arguments{}, abi.Arguments{
+	abi.Argument{
+		Type: facetsTy,
+	},
+})
+
+type foundryTomlData struct {
+	RpcEndpoints map[string]string `toml:"rpc_endpoints"`
+}
+
+type upgradeConfigData []struct {
+	Chain   string `json:"chain,omitempty"`
+	Diamond string `json:"diamond,omitempty"`
+	Facet   string `json:"facet,omitempty"`
+	NewImpl string `json:"new_impl,omitempty"`
+	Replace bool   `json:"replace,omitempty"`
+	Add     bool   `json:"add,omitempty"`
+	Remove  bool   `json:"remove,omitempty"`
+}
+
+var diamondCutUpgradeReportCmd = &cli.Command{
+	Name:  "diamond-upgrade",
+	Usage: "Generate a diamond cut upgrade params.",
+	Action: func(ctx context.Context, cmd *cli.Command) error {
+		currentDirPath, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("failed to get current directory: %w", err)
+		}
+
+		var upgradeConfigData upgradeConfigData
+		upgradeConfigFilePath := filepath.Join(currentDirPath, "upgrade-config.json")
+		upgradeConfigFile, err := os.Open(upgradeConfigFilePath)
+		if err != nil {
+			return fmt.Errorf("failed to open upgrade-config.json: %w", err)
+		}
+		defer upgradeConfigFile.Close()
+		if err = json.NewDecoder(upgradeConfigFile).Decode(&upgradeConfigData); err != nil {
+			return fmt.Errorf("failed to unmarshal upgrade-config.json: %w", err)
+		}
+
+		foundryTomlPath := filepath.Join(currentDirPath, "foundry.toml")
+		foundryToml, err := os.ReadFile(foundryTomlPath)
+		if err != nil {
+			return fmt.Errorf("failed to read foundry.toml: %w", err)
+		}
+		var foundryTomlData foundryTomlData
+		err = toml.Unmarshal(foundryToml, &foundryTomlData)
+		if err != nil {
+			return fmt.Errorf("failed to unmarshal foundry.toml: %w", err)
+		}
+
+		for _, upgradeConfig := range upgradeConfigData {
+			chain := upgradeConfig.Chain
+			rpcUrl, ok := foundryTomlData.RpcEndpoints[chain]
+			if !ok {
+				return fmt.Errorf("rpc not found")
+			}
+			rpcClient, err := ethclient.Dial(rpcUrl)
+			if err != nil {
+				return fmt.Errorf("failed to dial rpc: %w", err)
+			}
+			diamondAddressParsed := common.HexToAddress(upgradeConfig.Diamond)
+			resp, err := rpcClient.CallContract(ctx, ethereum.CallMsg{
+				To:   &diamondAddressParsed,
+				Data: facetsMethod.ID,
+			}, nil)
+			if err != nil {
+				return fmt.Errorf("failed to call contract: %w", err)
+			}
+			facets, err := facetsMethod.Outputs.Unpack(resp)
+			if err != nil {
+				return fmt.Errorf("failed to unpack facets: %w", err)
+			}
+			abiFile, err := os.Open(fmt.Sprintf("target/abi/%s.json", upgradeConfig.Facet))
+			if err != nil {
+				return fmt.Errorf("failed to open abi file %s: %w", upgradeConfig.Facet, err)
+			}
+			abiParsed, err := abi.JSON(abiFile)
+			if err != nil {
+				return fmt.Errorf("failed to parse abi file %s: %w", upgradeConfig.Facet, err)
+			}
+
+			facetsData := facets[0].([]struct {
+				FacetAddress      common.Address "json:\"facetAddress\""
+				FunctionSelectors [][4]uint8     "json:\"functionSelectors\""
+			})
+
+			// 获取新ABI中的所有函数签名
+			newFuncSigs := make(map[string]bool)
+			for _, method := range abiParsed.Methods {
+				newFuncSigs[bytes2hexFixedWidth(method.ID, 4)] = true
+			}
+
+			// 收集所有现有的函数签名
+			allExistingSigs := make(map[string]bool)
+			for _, facet := range facetsData {
+				for _, funcSig := range facet.FunctionSelectors {
+					funcSigString := bytes2hexFixedWidth(funcSig[:], 4)
+					allExistingSigs[funcSigString] = true
+				}
+			}
+
+			// 计算需要替换和添加的函数签名
+			var toReplace []string
+			var toAdd []string
+
+			// 需要替换：新ABI中存在且现有diamond中也存在的函数签名
+			for sig := range newFuncSigs {
+				if allExistingSigs[sig] {
+					toReplace = append(toReplace, sig)
+				}
+			}
+
+			// 需要添加：新ABI中存在但现有diamond中不存在的函数签名
+			for sig := range newFuncSigs {
+				if !allExistingSigs[sig] {
+					toAdd = append(toAdd, sig)
+				}
+			}
+
+			// 记录每个facet的信息，用于找到需要替换最多的facet
+			type facetInfo struct {
+				address      common.Address
+				replaceCount int
+			}
+
+			var facetInfos []facetInfo
+			for _, facet := range facetsData {
+				replaceCount := 0
+				for _, funcSig := range facet.FunctionSelectors {
+					funcSigString := bytes2hexFixedWidth(funcSig[:], 4)
+					if newFuncSigs[funcSigString] {
+						replaceCount++
+					}
+				}
+				facetInfos = append(facetInfos, facetInfo{
+					address:      facet.FacetAddress,
+					replaceCount: replaceCount,
+				})
+			}
+
+			// 找到需要替换最多的facet
+			var maxReplaceFacet facetInfo
+			maxReplaceCount := 0
+			for _, info := range facetInfos {
+				if info.replaceCount > maxReplaceCount {
+					maxReplaceCount = info.replaceCount
+					maxReplaceFacet = info
+				}
+			}
+
+			// 计算需要删除的函数签名：在匹配数量最多的facet中，不在新ABI中的函数签名
+			var toDelete []string
+			for _, facet := range facetsData {
+				if facet.FacetAddress == maxReplaceFacet.address {
+					for _, funcSig := range facet.FunctionSelectors {
+						funcSigString := bytes2hexFixedWidth(funcSig[:], 4)
+						if !newFuncSigs[funcSigString] {
+							toDelete = append(toDelete, funcSigString)
+						}
+					}
+					break
+				}
+			}
+
+			var diamondCutParams [][]interface{}
+
+			if upgradeConfig.Replace && len(toReplace) > 0 {
+				replaceParam := []interface{}{
+					upgradeConfig.NewImpl,
+					"1",
+					toReplace,
+				}
+				diamondCutParams = append(diamondCutParams, replaceParam)
+			}
+
+			if upgradeConfig.Add && len(toAdd) > 0 {
+				addParam := []interface{}{
+					upgradeConfig.NewImpl,
+					"0",
+					toAdd,
+				}
+				diamondCutParams = append(diamondCutParams, addParam)
+			}
+
+			if upgradeConfig.Remove && len(toDelete) > 0 {
+				deleteParam := []interface{}{
+					common.Address{},
+					"2",
+					toDelete,
+				}
+				diamondCutParams = append(diamondCutParams, deleteParam)
+			}
+
+			diamondCutParamsJson, err := json.Marshal(diamondCutParams)
+			if err != nil {
+				return fmt.Errorf("failed to marshal diamond cut params: %w", err)
+			}
+			fmt.Printf("%s %s\n\n", chain, diamondCutParamsJson)
+		}
+
+		return nil
+	},
+}
+
+func bytes2hexFixedWidth(b []byte, width int) string {
+	length := width * 2
+	s := common.Bytes2Hex(b)
+	if len(s) < length {
+		s = strings.Repeat("0", length-len(s)) + s
+	}
+	return "0x" + s
 }
 
 func abiStringArgToInterface(t string, v string) interface{} {
@@ -143,13 +373,13 @@ var unflattenCmd = &cli.Command{
 
 		f, err := os.OpenFile(file, os.O_CREATE, 0644)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to open abi file %s: %w", file, err)
 		}
 		defer f.Close()
 
 		fileInfo, err := f.Stat()
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to parse abi file %s: %w", file, err)
 		}
 		if fileInfo.Size() > 10*1024*1024 {
 			return fmt.Errorf("file size is too large")

@@ -1,7 +1,7 @@
 package main
 
 import (
-	"log"
+	"fmt"
 	"os"
 	"os/signal"
 	"sync/atomic"
@@ -29,7 +29,7 @@ func main() {
 	}()
 	err := cmd.Execute()
 	if err != nil {
-		log.Println(err)
+		fmt.Println("Error: ", err)
 		os.Exit(1)
 	}
 }
