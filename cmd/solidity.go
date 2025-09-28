@@ -31,7 +31,7 @@ var solidityCmd = &cli.Command{
 	Commands: []*cli.Command{
 		unflattenCmd,
 		create2vanityCmd,
-		diamondCutUpgradeReportCmd,
+		diamondCutUpgradeCmd,
 	},
 }
 
@@ -65,10 +65,18 @@ type upgradeConfigData []struct {
 	Remove  bool   `json:"remove,omitempty"`
 }
 
-var diamondCutUpgradeReportCmd = &cli.Command{
+var diamondCutUpgradeCmd = &cli.Command{
 	Name:  "diamond-upgrade",
 	Usage: "Generate a diamond cut upgrade params.",
+	Flags: []cli.Flag{
+		&cli.BoolFlag{
+			Name:    "verify",
+			Aliases: []string{"v"},
+			Usage:   "Verify the upgrade after completion",
+		},
+	},
 	Action: func(ctx context.Context, cmd *cli.Command) error {
+		verify := cmd.Bool("verify")
 		currentDirPath, err := os.Getwd()
 		if err != nil {
 			return fmt.Errorf("failed to get current directory: %w", err)
@@ -96,35 +104,72 @@ var diamondCutUpgradeReportCmd = &cli.Command{
 			return fmt.Errorf("failed to unmarshal foundry.toml: %w", err)
 		}
 
-		for _, upgradeConfig := range upgradeConfigData {
+		// 定义结果结构
+		type upgradeResult struct {
+			Chain          string
+			UpgradeParams  [][]interface{}
+			RollbackParams [][]interface{}
+			VerifySuccess  bool
+			Error          error
+		}
+
+		var results []upgradeResult
+
+		// 处理每个升级配置
+		for i, upgradeConfig := range upgradeConfigData {
 			chain := upgradeConfig.Chain
+			fmt.Printf("\r🔄 Processing chain %s (%d/%d)...", chain, i+1, len(upgradeConfigData))
+
+			result := upgradeResult{Chain: chain}
+
+			// 获取RPC连接
 			rpcUrl, ok := foundryTomlData.RpcEndpoints[chain]
 			if !ok {
-				return fmt.Errorf("rpc not found")
+				result.Error = fmt.Errorf("rpc not found for chain %s", chain)
+				results = append(results, result)
+				continue
 			}
+
 			rpcClient, err := ethclient.Dial(rpcUrl)
 			if err != nil {
-				return fmt.Errorf("failed to dial rpc: %w", err)
+				result.Error = fmt.Errorf("failed to dial rpc: %w", err)
+				results = append(results, result)
+				continue
 			}
+
+			// 获取diamond facets信息
 			diamondAddressParsed := common.HexToAddress(upgradeConfig.Diamond)
 			resp, err := rpcClient.CallContract(ctx, ethereum.CallMsg{
 				To:   &diamondAddressParsed,
 				Data: facetsMethod.ID,
 			}, nil)
 			if err != nil {
-				return fmt.Errorf("failed to call contract: %w", err)
+				result.Error = fmt.Errorf("failed to call contract: %w", err)
+				results = append(results, result)
+				continue
 			}
+
 			facets, err := facetsMethod.Outputs.Unpack(resp)
 			if err != nil {
-				return fmt.Errorf("failed to unpack facets: %w", err)
+				result.Error = fmt.Errorf("failed to unpack facets: %w", err)
+				results = append(results, result)
+				continue
 			}
+
+			// 读取ABI文件
 			abiFile, err := os.Open(fmt.Sprintf("target/abi/%s.json", upgradeConfig.Facet))
 			if err != nil {
-				return fmt.Errorf("failed to open abi file %s: %w", upgradeConfig.Facet, err)
+				result.Error = fmt.Errorf("failed to open abi file %s: %w", upgradeConfig.Facet, err)
+				results = append(results, result)
+				continue
 			}
+
 			abiParsed, err := abi.JSON(abiFile)
+			abiFile.Close()
 			if err != nil {
-				return fmt.Errorf("failed to parse abi file %s: %w", upgradeConfig.Facet, err)
+				result.Error = fmt.Errorf("failed to parse abi file %s: %w", upgradeConfig.Facet, err)
+				results = append(results, result)
+				continue
 			}
 
 			facetsData := facets[0].([]struct {
@@ -213,12 +258,36 @@ var diamondCutUpgradeReportCmd = &cli.Command{
 			var diamondCutParams [][]interface{}
 
 			if upgradeConfig.Replace && len(toReplace) > 0 {
-				replaceParam := []interface{}{
-					upgradeConfig.NewImpl,
-					"1",
-					toReplace,
+				// 检查需要替换的function selector对应的现有实现地址
+				newImplAddress := common.HexToAddress(upgradeConfig.NewImpl)
+				var actualToReplace []string
+
+				// 创建function selector到facet地址的映射
+				selectorToFacet := make(map[string]common.Address)
+				for _, facet := range facetsData {
+					for _, funcSig := range facet.FunctionSelectors {
+						funcSigString := bytes2hexFixedWidth(funcSig[:], 4)
+						selectorToFacet[funcSigString] = facet.FacetAddress
+					}
 				}
-				diamondCutParams = append(diamondCutParams, replaceParam)
+
+				// 只替换那些现有实现地址与新地址不同的function selector
+				for _, selector := range toReplace {
+					if existingFacet, exists := selectorToFacet[selector]; exists {
+						if existingFacet != newImplAddress {
+							actualToReplace = append(actualToReplace, selector)
+						}
+					}
+				}
+
+				if len(actualToReplace) > 0 {
+					replaceParam := []interface{}{
+						upgradeConfig.NewImpl,
+						"1",
+						actualToReplace,
+					}
+					diamondCutParams = append(diamondCutParams, replaceParam)
+				}
 			}
 
 			if upgradeConfig.Add && len(toAdd) > 0 {
@@ -239,11 +308,57 @@ var diamondCutUpgradeReportCmd = &cli.Command{
 				diamondCutParams = append(diamondCutParams, deleteParam)
 			}
 
-			diamondCutParamsJson, err := json.Marshal(diamondCutParams)
-			if err != nil {
-				return fmt.Errorf("failed to marshal diamond cut params: %w", err)
+			result.UpgradeParams = diamondCutParams
+
+			// 生成回滚参数
+			result.RollbackParams = generateRollbackParams(upgradeConfig, facetsData, toReplace, toAdd, toDelete)
+
+			if verify {
+				// 如果是验证模式，执行升级验证
+				if err := verifyDiamondUpgrade(upgradeConfig, diamondCutParams); err != nil {
+					result.Error = fmt.Errorf("verification failed: %w", err)
+				} else {
+					result.VerifySuccess = true
+				}
 			}
-			fmt.Printf("%s %s\n\n", chain, diamondCutParamsJson)
+
+			results = append(results, result)
+			fmt.Printf("\r✅ Completed chain %s (%d/%d)\n", chain, i+1, len(upgradeConfigData))
+		}
+
+		// 输出最终结果
+		fmt.Printf("\n📋 Upgrade Results:\n")
+		fmt.Printf("==================\n")
+
+		for _, result := range results {
+			if result.Error != nil {
+				fmt.Printf("❌ %s: %v\n", result.Chain, result.Error)
+				continue
+			}
+
+			if verify {
+				if result.VerifySuccess {
+					fmt.Printf("✅ %s: Upgrade verification passed\n", result.Chain)
+				} else {
+					fmt.Printf("❌ %s: Upgrade verification failed\n", result.Chain)
+				}
+			} else {
+				// 输出升级参数
+				upgradeParamsJson, err := json.Marshal(result.UpgradeParams)
+				if err != nil {
+					fmt.Printf("❌ %s: Failed to marshal upgrade params: %v\n", result.Chain, err)
+					continue
+				}
+				fmt.Printf("🔧 %s upgrade: %s\n", result.Chain, upgradeParamsJson)
+
+				// 输出rollback参数
+				rollbackParamsJson, err := json.Marshal(result.RollbackParams)
+				if err != nil {
+					fmt.Printf("❌ %s: Failed to marshal rollback params: %v\n", result.Chain, err)
+					continue
+				}
+				fmt.Printf("🔄 %s rollback: %s\n", result.Chain, rollbackParamsJson)
+			}
 		}
 
 		return nil
@@ -471,4 +586,140 @@ var unflattenCmd = &cli.Command{
 		}
 		return nil
 	},
+}
+
+// verifyDiamondUpgrade 验证diamond升级是否正确
+// 这是事后校验：期望 upgradeConfig 中对应的项的数据为空而不是非空
+func verifyDiamondUpgrade(upgradeConfig struct {
+	Chain   string `json:"chain,omitempty"`
+	Diamond string `json:"diamond,omitempty"`
+	Facet   string `json:"facet,omitempty"`
+	NewImpl string `json:"new_impl,omitempty"`
+	Replace bool   `json:"replace,omitempty"`
+	Add     bool   `json:"add,omitempty"`
+	Remove  bool   `json:"remove,omitempty"`
+}, diamondCutParams [][]interface{}) error {
+	// 检查diamondCutParams中的条目
+	hasReplace := false
+	hasAdd := false
+	hasRemove := false
+
+	for _, param := range diamondCutParams {
+		if len(param) >= 2 {
+			action := param[1].(string)
+			switch action {
+			case "1": // Replace
+				hasReplace = true
+			case "0": // Add
+				hasAdd = true
+			case "2": // Remove
+				hasRemove = true
+			}
+		}
+	}
+
+	// 事后校验：期望 upgradeConfig 中对应的项的数据为空而不是非空
+	// 如果配置了某个操作但diamondCutParams中有对应的条目，说明升级后还有需要操作的内容，这是不正确的
+	if upgradeConfig.Replace && hasReplace {
+		return fmt.Errorf("replace operation is configured but replace entry found in diamondCutParams - upgrade is incorrect, please check")
+	}
+
+	if upgradeConfig.Add && hasAdd {
+		return fmt.Errorf("add operation is configured but add entry found in diamondCutParams - upgrade is incorrect, please check")
+	}
+
+	if upgradeConfig.Remove && hasRemove {
+		return fmt.Errorf("remove operation is configured but remove entry found in diamondCutParams - upgrade is incorrect, please check")
+	}
+
+	return nil
+}
+
+// generateRollbackParams 生成rollback参数
+func generateRollbackParams(upgradeConfig struct {
+	Chain   string `json:"chain,omitempty"`
+	Diamond string `json:"diamond,omitempty"`
+	Facet   string `json:"facet,omitempty"`
+	NewImpl string `json:"new_impl,omitempty"`
+	Replace bool   `json:"replace,omitempty"`
+	Add     bool   `json:"add,omitempty"`
+	Remove  bool   `json:"remove,omitempty"`
+}, facetsData []struct {
+	FacetAddress      common.Address "json:\"facetAddress\""
+	FunctionSelectors [][4]uint8     "json:\"functionSelectors\""
+}, toReplace, toAdd, toDelete []string) [][]interface{} {
+	var rollbackParams [][]interface{}
+
+	// 创建function selector到facet地址的映射
+	selectorToFacet := make(map[string]common.Address)
+	for _, facet := range facetsData {
+		for _, funcSig := range facet.FunctionSelectors {
+			funcSigString := bytes2hexFixedWidth(funcSig[:], 4)
+			selectorToFacet[funcSigString] = facet.FacetAddress
+		}
+	}
+
+	// 1. Replace操作的回滚：将替换的函数恢复到原来的地址
+	if upgradeConfig.Replace && len(toReplace) > 0 {
+		// 找到这些函数原来的地址
+		originalAddresses := make(map[string]common.Address)
+		for _, selector := range toReplace {
+			if originalAddr, exists := selectorToFacet[selector]; exists {
+				originalAddresses[selector] = originalAddr
+			}
+		}
+
+		// 按地址分组，生成rollback参数
+		addressToSelectors := make(map[common.Address][]string)
+		for selector, addr := range originalAddresses {
+			addressToSelectors[addr] = append(addressToSelectors[addr], selector)
+		}
+
+		for addr, selectors := range addressToSelectors {
+			rollbackParam := []interface{}{
+				addr.Hex(),
+				1, // Replace
+				selectors,
+			}
+			rollbackParams = append(rollbackParams, rollbackParam)
+		}
+	}
+
+	// 2. Add操作的回滚：删除新添加的函数
+	if upgradeConfig.Add && len(toAdd) > 0 {
+		rollbackParam := []interface{}{
+			common.Address{},
+			2, // Remove
+			toAdd,
+		}
+		rollbackParams = append(rollbackParams, rollbackParam)
+	}
+
+	// 3. Remove操作的回滚：重新添加被删除的函数
+	if upgradeConfig.Remove && len(toDelete) > 0 {
+		// 找到这些函数原来的地址
+		originalAddresses := make(map[string]common.Address)
+		for _, selector := range toDelete {
+			if originalAddr, exists := selectorToFacet[selector]; exists {
+				originalAddresses[selector] = originalAddr
+			}
+		}
+
+		// 按地址分组，生成rollback参数
+		addressToSelectors := make(map[common.Address][]string)
+		for selector, addr := range originalAddresses {
+			addressToSelectors[addr] = append(addressToSelectors[addr], selector)
+		}
+
+		for addr, selectors := range addressToSelectors {
+			rollbackParam := []interface{}{
+				addr.Hex(),
+				0, // Add
+				selectors,
+			}
+			rollbackParams = append(rollbackParams, rollbackParam)
+		}
+	}
+
+	return rollbackParams
 }
