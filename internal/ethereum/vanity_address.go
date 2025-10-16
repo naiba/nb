@@ -1,10 +1,9 @@
-package solana
+package ethereum
 
 import (
 	"context"
-	"crypto/ed25519"
 	"crypto/rand"
-	"encoding/json"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"math/big"
@@ -12,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mr-tron/base58"
+	"github.com/ethereum/go-ethereum/crypto"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -41,14 +40,13 @@ func VanityAddress(
 	caseSensitive bool,
 	upperOrLower bool,
 ) error {
-	log.Printf("REMINDER: Solana addresses use Base58 encoding (excludes 0, O, I, l)")
+	log.Printf("REMINDER: Ethereum addresses only contain hexadecimal characters (0-9, a-f, A-F)")
 
-	// Base58 alphabet: 123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz
-	// Excluded: 0 (zero), O (capital o), I (capital i), l (lowercase L)
-	validBase58Chars := "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+	// Validate that contains only has valid hex characters
+	validHexChars := "0123456789abcdefABCDEF"
 	for _, char := range contains {
-		if !strings.ContainsRune(validBase58Chars, char) {
-			return fmt.Errorf("contains illegal character: %c (Solana addresses use Base58: excludes 0, O, I, l)", char)
+		if !strings.ContainsRune(validHexChars, char) {
+			return fmt.Errorf("contains illegal character: %c (Ethereum addresses only contain 0-9, a-f, A-F)", char)
 		}
 	}
 
@@ -65,12 +63,12 @@ func VanityAddress(
 
 	MAX_UINT256 := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
 	remaining := new(big.Int).Sub(MAX_UINT256, initialSeedBn)
-	estimateSecounds := new(big.Int).Mul(new(big.Int).Div(remaining, big.NewInt(int64(threads*10000000))), big.NewInt(23))
-	secoundsOf100Years := new(big.Int).Mul(big.NewInt(100), big.NewInt(365*24*60*60))
-	if estimateSecounds.Cmp(secoundsOf100Years) == 1 {
-		estimateSecounds = secoundsOf100Years
+	estimateSeconds := new(big.Int).Mul(new(big.Int).Div(remaining, big.NewInt(int64(threads*10000000))), big.NewInt(23))
+	secondsOf100Years := new(big.Int).Mul(big.NewInt(100), big.NewInt(365*24*60*60))
+	if estimateSeconds.Cmp(secondsOf100Years) == 1 {
+		estimateSeconds = secondsOf100Years
 	}
-	estimateTime := time.Duration(estimateSecounds.Uint64()) * time.Second
+	estimateTime := time.Duration(estimateSeconds.Uint64()) * time.Second
 	log.Printf("Remaining addresses to search: %v, estimated time: %v (2.6 GHz 6-Core Intel Core i7)", remaining, estimateTime)
 
 	generateTaskRange := func() (start, end *big.Int) {
@@ -101,7 +99,7 @@ func VanityAddress(
 	for i := 0; i < threads; i++ {
 		g.Go(func() error {
 			// Pre-allocate buffers to avoid repeated allocations
-			var seed [32]byte
+			var seedBytes [32]byte
 			var addressLower string
 
 			for {
@@ -111,39 +109,46 @@ func VanityAddress(
 					case <-gctx.Done():
 						return nil
 					default:
-						j.FillBytes(seed[:])
-						privateKey := ed25519.NewKeyFromSeed(seed[:])
-						address := base58.Encode(privateKey[32:])
+						// Reuse the same buffer for seed bytes
+						j.FillBytes(seedBytes[:])
+						privateKey, err := crypto.ToECDSA(seedBytes[:])
+						if err != nil {
+							continue
+						}
+
+						// Generate address directly without interface conversion
+						address := crypto.PubkeyToAddress(privateKey.PublicKey)
+
+						// Get checksum address (EIP-55 format)
+						addressChecksum := address.Hex()
+						// Remove 0x prefix for matching
+						addressHex := addressChecksum[2:]
 
 						// Pre-compute lowercase version if needed
 						if !caseSensitive || upperOrLower {
-							addressLower = strings.ToLower(address)
+							addressLower = strings.ToLower(addressHex)
 						}
 
 						// Optimized matching logic
 						var passed bool
 						if caseSensitive {
-							passed = addressMatchesCriteria(contains, mode, address)
+							passed = addressMatchesCriteria(contains, mode, addressHex)
 						} else if upperOrLower {
 							passed = addressMatchesCriteria(containsLower, mode, addressLower) ||
-								addressMatchesCriteria(containsUpper, mode, address)
+								addressMatchesCriteria(containsUpper, mode, addressHex)
 						} else {
 							passed = addressMatchesCriteria(containsLower, mode, addressLower)
 						}
 
 						if passed {
-							// Format private key as JSON byte array (more efficient than fmt.Sprintf)
-							// Convert slice to array for proper JSON marshaling
-							var privateKeyArray [64]byte
-							copy(privateKeyArray[:], privateKey)
-							privateKeyJSON, _ := json.Marshal(privateKeyArray)
+							privateKeyBytes := crypto.FromECDSA(privateKey)
 							select {
 							case result <- vanityResult{
-								Address:    address,
-								PrivateKey: string(privateKeyJSON),
+								Address:    addressChecksum,
+								PrivateKey: hex.EncodeToString(privateKeyBytes),
 							}:
-								cancel() // 通知其他 goroutine 退出
-							default: // 防止死锁
+								cancel() // Notify other goroutines to exit
+							default: // Prevent deadlock
 							}
 							return nil
 						}
@@ -160,13 +165,8 @@ func VanityAddress(
 
 	if res, ok := <-result; ok {
 		log.Printf("Address: %s", res.Address)
-		log.Printf("Private Key (bytes): %s", res.PrivateKey)
-
-		// Also print hex for convenience
-		var privateKeyBytes [64]byte
-		if err := json.Unmarshal([]byte(res.PrivateKey), &privateKeyBytes); err == nil {
-			log.Printf("Private Key (hex): %x", privateKeyBytes)
-		}
+		log.Printf("Private Key (hex): %s", res.PrivateKey)
+		log.Printf("Private Key (with 0x prefix): 0x%s", res.PrivateKey)
 	}
 
 	return nil
