@@ -33,7 +33,7 @@ var cloudflareCmd = &cli.Command{
 		mux.Handle("/delete-dns-records", http.HandlerFunc(internal.Cloudflared.DeleteDNSRecords))
 		mux.Handle("/delete-page-rules", http.HandlerFunc(internal.Cloudflared.DeletePageRules))
 		mux.Handle("/delete-rulesets", http.HandlerFunc(internal.Cloudflared.DeleteRulesets))
-		mux.Handle("/batch-create-dns-record", http.HandlerFunc(internal.Cloudflared.BatchCreteDNSRecord))
+		mux.Handle("/batch-create-dns-record", http.HandlerFunc(internal.Cloudflared.BatchCreateDNSRecord))
 		mux.Handle("/batch-create-page-rule", http.HandlerFunc(internal.Cloudflared.BatchCreatePageRule))
 		mux.Handle("/batch-create-ruleset", http.HandlerFunc(internal.Cloudflared.BatchCreateRuleset))
 		mux.Handle("/check-token", http.HandlerFunc(internal.Cloudflared.CheckToken))

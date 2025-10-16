@@ -101,7 +101,7 @@ func (s *cloudflareServ) BatchCreatePageRule(w http.ResponseWriter, r *http.Requ
 	w.Write([]byte("ok"))
 }
 
-func (s *cloudflareServ) BatchCreteDNSRecord(w http.ResponseWriter, r *http.Request) {
+func (s *cloudflareServ) BatchCreateDNSRecord(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Zones  []string `json:"zones"`
 		Record struct {

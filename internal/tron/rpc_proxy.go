@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -156,7 +157,9 @@ func (p *proxyHandler) forwardRequestWithBody(w http.ResponseWriter, r *http.Req
 
 	proxyReq.Host = p.target.Host
 
-	client := &http.Client{}
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+	}
 	resp, err := client.Do(proxyReq)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("proxy request failed: %v", err), http.StatusBadGateway)
