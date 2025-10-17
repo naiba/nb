@@ -20,9 +20,12 @@ var ncCmd = &cli.Command{
 
 		proxyName := cmd.String("proxy")
 		if proxyName != "" {
+			if singleton.Config == nil || singleton.Config.Proxy == nil {
+				return fmt.Errorf("proxy configuration not available. Please create a config file at ~/.config/nb.yaml")
+			}
 			server, exists := singleton.Config.Proxy[proxyName]
 			if !exists {
-				return fmt.Errorf("proxy server not found: " + proxyName)
+				return fmt.Errorf("proxy server not found: %s", proxyName)
 			}
 			socksHost, socksPort, _ := net.SplitHostPort(server.Socks)
 			args = append(args, "-x", fmt.Sprintf("%s:%s", socksHost, socksPort))

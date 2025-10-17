@@ -38,7 +38,7 @@ type Config struct {
 	Snippet map[string]string
 }
 
-func ReadInConfig(path string) (*Config, error) {
+func ReadInConfig(path string) (*Config, bool, error) {
 	viper.SetConfigName("nb")
 	viper.SetConfigType("yaml")
 	viper.AddConfigPath("$HOME/.config/")
@@ -48,12 +48,18 @@ func ReadInConfig(path string) (*Config, error) {
 	}
 	err := viper.ReadInConfig()
 	if err != nil {
-		return nil, err
+		// Return empty config but allow execution
+		return &Config{
+			Git:     make(map[string]GitAccount),
+			SSH:     make(map[string]SSHAccount),
+			Proxy:   make(map[string]Proxy),
+			Snippet: make(map[string]string),
+		}, false, nil
 	}
 	var config Config
 	err = viper.Unmarshal(&config)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return &config, nil
+	return &config, true, nil
 }

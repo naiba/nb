@@ -20,9 +20,12 @@ var rsyncCmd = &cli.Command{
 
 		proxyName := cmd.String("proxy")
 		if proxyName != "" {
+			if singleton.Config == nil || singleton.Config.Proxy == nil {
+				return fmt.Errorf("proxy configuration not available. Please create a config file at ~/.config/nb.yaml")
+			}
 			server, exists := singleton.Config.Proxy[proxyName]
 			if !exists {
-				return fmt.Errorf("proxy server not found: " + proxyName)
+				return fmt.Errorf("proxy server not found: %s", proxyName)
 			}
 			socksHost, socksPort, _ := net.SplitHostPort(server.Socks)
 			proxyCommand = " -o ProxyCommand=\"nc -X 5 -x " + fmt.Sprintf("%s:%s", socksHost, socksPort) + " %h %p\""
@@ -33,9 +36,12 @@ var rsyncCmd = &cli.Command{
 
 		sshServerName := cmd.String("ssh-server")
 		if sshServerName != "" {
+			if singleton.Config == nil || singleton.Config.SSH == nil {
+				return fmt.Errorf("SSH configuration not available. Please create a config file at ~/.config/nb.yaml")
+			}
 			server, exists := singleton.Config.SSH[sshServerName]
 			if !exists {
-				return fmt.Errorf("ssh server not found: " + sshServerName)
+				return fmt.Errorf("ssh server not found: %s", sshServerName)
 			}
 			args = append(args, "-e", fmt.Sprintf("ssh -i %s -p %s%s", server.Prikey, server.GetPort(), proxyCommand))
 			if err := ReplaceRemotePath(extArgs, server); err != nil {

@@ -14,7 +14,9 @@ var printSnippetCmd = &cli.Command{
 	Usage:           "Prints code snippet.",
 	SkipFlagParsing: true,
 	Action: func(ctx context.Context, cmd *cli.Command) error {
-		fmt.Fprint(os.Stdout, singleton.Config.Snippet[cmd.Args().First()])
+		if singleton.Config != nil && singleton.Config.Snippet != nil {
+			fmt.Fprint(os.Stdout, singleton.Config.Snippet[cmd.Args().First()])
+		}
 		return nil
 	},
 }

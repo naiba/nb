@@ -14,6 +14,9 @@ func GetGitSSHCommandEnv(user string, proxyName string) (*model.GitAccount, []st
 	if user == "" {
 		return nil, nil, nil
 	}
+	if singleton.Config == nil || singleton.Config.Git == nil {
+		return nil, nil, errors.New("git configuration not available. Please create a config file at ~/.config/nb.yaml")
+	}
 	account, exists := singleton.Config.Git[user]
 	if !exists {
 		return nil, nil, errors.New("git user not exists: " + user)
@@ -22,6 +25,9 @@ func GetGitSSHCommandEnv(user string, proxyName string) (*model.GitAccount, []st
 		return &account, []string{
 			"GIT_SSH_COMMAND=ssh -i \"" + account.SSHPrikey + "\" -o IdentitiesOnly=yes",
 		}, nil
+	}
+	if singleton.Config.Proxy == nil {
+		return nil, nil, errors.New("proxy configuration not available. Please create a config file at ~/.config/nb.yaml")
 	}
 	server, exists := singleton.Config.Proxy[proxyName]
 	if !exists {

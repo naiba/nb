@@ -25,9 +25,12 @@ var sshCmd = &cli.Command{
 
 		proxyName := cmd.String("proxy")
 		if proxyName != "" {
+			if singleton.Config == nil || singleton.Config.Proxy == nil {
+				return fmt.Errorf("proxy configuration not available. Please create a config file at ~/.config/nb.yaml")
+			}
 			server, exists := singleton.Config.Proxy[proxyName]
 			if !exists {
-				return fmt.Errorf("proxy server not found: " + proxyName)
+				return fmt.Errorf("proxy server not found: %s", proxyName)
 			}
 			socksHost, socksPort, _ := net.SplitHostPort(server.Socks)
 			args = append(args, "-o", "ProxyCommand=nc -X 5 -x "+fmt.Sprintf("%s:%s", socksHost, socksPort)+" %h %p")
@@ -35,9 +38,12 @@ var sshCmd = &cli.Command{
 
 		sshServerName := cmd.String("ssh-server")
 		if sshServerName != "" {
+			if singleton.Config == nil || singleton.Config.SSH == nil {
+				return fmt.Errorf("SSH configuration not available. Please create a config file at ~/.config/nb.yaml")
+			}
 			server, exists := singleton.Config.SSH[sshServerName]
 			if !exists {
-				return fmt.Errorf("ssh server not found: " + sshServerName)
+				return fmt.Errorf("ssh server not found: %s", sshServerName)
 			}
 			args = append(args, "-i", server.Prikey)
 			args = append(args, "-p", server.GetPort())
@@ -53,6 +59,9 @@ var sshInsecureCmd = &cli.Command{
 	Aliases: []string{"in"},
 	Usage:   "Scan insecure ssh server.",
 	Action: func(ctx context.Context, cmd *cli.Command) error {
+		if singleton.Config == nil || singleton.Config.SSH == nil || len(singleton.Config.SSH) == 0 {
+			return fmt.Errorf("SSH configuration not available. Please create a config file at ~/.config/nb.yaml")
+		}
 		var wg sync.WaitGroup
 		wg.Add(len(singleton.Config.SSH))
 		for _, item := range singleton.Config.SSH {
