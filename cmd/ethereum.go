@@ -14,6 +14,7 @@ import (
 	"github.com/urfave/cli/v3"
 
 	"github.com/naiba/nb/internal/ethereum"
+	"github.com/naiba/nb/model"
 )
 
 func init() {
@@ -25,7 +26,8 @@ var ethereumCmd = &cli.Command{
 	Usage: "Ethereum helper.",
 	Commands: []*cli.Command{
 		ethereumVanityCmd,
-		ethereumVanityContractCmd,
+		ethereumVanityCreate1Cmd,
+		ethereumVanityCreate2Cmd,
 		timestampToBlockNumberCmd,
 		checkSandwichAttackCmd,
 	},
@@ -34,105 +36,50 @@ var ethereumCmd = &cli.Command{
 var ethereumVanityCmd = &cli.Command{
 	Name:  "vanity",
 	Usage: "Generate vanity address.",
-	Flags: []cli.Flag{
-		&cli.StringFlag{
-			Name:    "contains",
-			Aliases: []string{"c"},
-			Usage:   "The address must contain this string.",
-		},
-		&cli.IntFlag{
-			Name:    "mode",
-			Aliases: []string{"m"},
-			Usage:   "The mode of matching. 1: prefix, 2: suffix, 3: prefix or suffix.",
-		},
-		&cli.BoolFlag{
-			Name:    "case-sensitive",
-			Aliases: []string{"cs"},
-			Usage:   "Whether the matching is case sensitive.",
-		},
-		&cli.BoolFlag{
-			Name:    "upper-or-lower",
-			Aliases: []string{"ul"},
-			Usage:   "Whether the matching is upper or lower case.",
-		},
-		&cli.IntFlag{
-			Name:    "threads",
-			Aliases: []string{"t"},
-			Usage:   "The number of threads to use.",
-			Value:   1,
-		},
-	},
+	Flags: model.VanityFlags(),
 	Action: func(ctx context.Context, cmd *cli.Command) error {
-		threads := cmd.Int("threads")
-		contains := cmd.String("contains")
-		mode := cmd.Int("mode")
-		caseSensitive := cmd.Bool("case-sensitive")
-		upperOrLower := cmd.Bool("upper-or-lower")
-
-		if (mode < 1 || mode > 3) || contains == "" {
-			return fmt.Errorf("mode must be 1, 2, or 3 and contains cannot be empty")
+		config, err := model.ParseVanityConfig(cmd)
+		if err != nil {
+			return err
 		}
 
-		return ethereum.VanityAddress(
-			int(threads),
-			contains,
-			int(mode),
-			caseSensitive,
-			upperOrLower,
-		)
+		return ethereum.VanityAddress(config)
 	},
 }
 
-var ethereumVanityContractCmd = &cli.Command{
-	Name:    "vanity-contract",
-	Aliases: []string{"vc"},
-	Usage:   "Generate vanity contract address (first deployment, nonce=0).",
-	Flags: []cli.Flag{
-		&cli.StringFlag{
-			Name:    "contains",
-			Aliases: []string{"c"},
-			Usage:   "The contract address must contain this string.",
-		},
-		&cli.IntFlag{
-			Name:    "mode",
-			Aliases: []string{"m"},
-			Usage:   "The mode of matching. 1: prefix, 2: suffix, 3: prefix or suffix.",
-		},
-		&cli.BoolFlag{
-			Name:    "case-sensitive",
-			Aliases: []string{"cs"},
-			Usage:   "Whether the matching is case sensitive.",
-		},
-		&cli.BoolFlag{
-			Name:    "upper-or-lower",
-			Aliases: []string{"ul"},
-			Usage:   "Whether the matching is upper or lower case.",
-		},
-		&cli.IntFlag{
-			Name:    "threads",
-			Aliases: []string{"t"},
-			Usage:   "The number of threads to use.",
-			Value:   1,
-		},
-	},
+var ethereumVanityCreate1Cmd = &cli.Command{
+	Name:    "vanity-create1",
+	Aliases: []string{"vc1"},
+	Usage:   "Generate vanity CREATE1 contract address (first deployment, nonce=0).",
+	Flags:   model.VanityFlags(),
 	Action: func(ctx context.Context, cmd *cli.Command) error {
-		threads := cmd.Int("threads")
-		contains := cmd.String("contains")
-		mode := cmd.Int("mode")
-		caseSensitive := cmd.Bool("case-sensitive")
-		upperOrLower := cmd.Bool("upper-or-lower")
-
-		if (mode < 1 || mode > 3) || contains == "" {
-			return fmt.Errorf("mode must be 1, 2, or 3 and contains cannot be empty")
+		config, err := model.ParseVanityConfig(cmd)
+		if err != nil {
+			return err
 		}
 
-		return ethereum.VanityContractAddress(
-			int(threads),
-			contains,
-			int(mode),
-			caseSensitive,
-			upperOrLower,
-		)
+		return ethereum.VanityCreate1Address(config)
+	},
+}
+
+var ethereumVanityCreate2Cmd = &cli.Command{
+	Name:    "vanity-create2",
+	Aliases: []string{"vc2"},
+	Usage:   "Generate vanity CREATE2 address.",
+	Flags:   model.VanityCreate2Flags(),
+	Action: func(ctx context.Context, cmd *cli.Command) error {
+		config, err := model.ParseVanityConfig(cmd)
+		if err != nil {
+			return err
+		}
+
+		// Get CREATE2 specific parameters
+		deployer := cmd.String("deployer")
+		saltPrefix := cmd.String("salt-prefix")
+		contractBin := cmd.String("contract-bin")
+		constructorArgs := cmd.StringSlice("constructor-args")
+
+		return ethereum.VanityCreate2Address(config, deployer, saltPrefix, contractBin, constructorArgs)
 	},
 }
 

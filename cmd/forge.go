@@ -2,10 +2,11 @@ package cmd
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"math/big"
 	"os"
 	"path"
 	"path/filepath"
@@ -15,23 +16,72 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/pelletier/go-toml/v2"
 	"github.com/urfave/cli/v3"
 )
 
 func init() {
-	rootCmd.Commands = append(rootCmd.Commands, solidityCmd)
+	rootCmd.Commands = append(rootCmd.Commands, forgeCmd)
 }
 
-var solidityCmd = &cli.Command{
-	Name:  "solidity",
-	Usage: "Solidity helper.",
+var forgeCmd = &cli.Command{
+	Name:  "forge",
+	Usage: "Forge helper.",
 	Commands: []*cli.Command{
-		unflattenCmd,
-		create2vanityCmd,
-		diamondCutUpgradeCmd,
+		forgeExportAbiCmd,
+		forgeUnflattenCmd,
+		forgeDiamondUpgradeCmd,
+	},
+}
+
+type forgeArtifactData struct {
+	Abi []any `json:"abi"`
+}
+
+type forgeTomlData struct {
+	RpcEndpoints map[string]string `toml:"rpc_endpoints"`
+}
+
+type upgradeConfigData []struct {
+	Chain   string `json:"chain,omitempty"`
+	Diamond string `json:"diamond,omitempty"`
+	Facet   string `json:"facet,omitempty"`
+	NewImpl string `json:"new_impl,omitempty"`
+	Replace bool   `json:"replace,omitempty"`
+	Add     bool   `json:"add,omitempty"`
+	Remove  bool   `json:"remove,omitempty"`
+}
+
+var forgeExportAbiCmd = &cli.Command{
+	Name: "export-abi",
+	Aliases: []string{
+		"ea",
+	},
+	Usage: "Export abi to directory.",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:    "dist",
+			Aliases: []string{"d"},
+			Value:   "target/abi",
+		},
+	},
+	Action: func(ctx context.Context, cmd *cli.Command) error {
+		dist := cmd.String("dist")
+		subFolderContracts, err := filepath.Glob("src/*/*.sol")
+		if err != nil {
+			return err
+		}
+		mainContracts, err := filepath.Glob("src/*.sol")
+		if err != nil {
+			return err
+		}
+		contracts := append(subFolderContracts, mainContracts...)
+		abis := make(map[string]struct{})
+		if err := exportAbis(contracts, abis, dist); err != nil {
+			return err
+		}
+		return clearUnusedAbis(abis, dist)
 	},
 }
 
@@ -51,21 +101,7 @@ var facetsMethod = abi.NewMethod("facets", "facets", abi.Function, "public", fal
 	},
 })
 
-type foundryTomlData struct {
-	RpcEndpoints map[string]string `toml:"rpc_endpoints"`
-}
-
-type upgradeConfigData []struct {
-	Chain   string `json:"chain,omitempty"`
-	Diamond string `json:"diamond,omitempty"`
-	Facet   string `json:"facet,omitempty"`
-	NewImpl string `json:"new_impl,omitempty"`
-	Replace bool   `json:"replace,omitempty"`
-	Add     bool   `json:"add,omitempty"`
-	Remove  bool   `json:"remove,omitempty"`
-}
-
-var diamondCutUpgradeCmd = &cli.Command{
+var forgeDiamondUpgradeCmd = &cli.Command{
 	Name:  "diamond-upgrade",
 	Usage: "Generate a diamond cut upgrade params.",
 	Flags: []cli.Flag{
@@ -93,13 +129,13 @@ var diamondCutUpgradeCmd = &cli.Command{
 			return fmt.Errorf("failed to unmarshal upgrade-config.json: %w", err)
 		}
 
-		foundryTomlPath := filepath.Join(currentDirPath, "foundry.toml")
-		foundryToml, err := os.ReadFile(foundryTomlPath)
+		forgeTomlPath := filepath.Join(currentDirPath, "foundry.toml")
+		forgeToml, err := os.ReadFile(forgeTomlPath)
 		if err != nil {
 			return fmt.Errorf("failed to read foundry.toml: %w", err)
 		}
-		var foundryTomlData foundryTomlData
-		err = toml.Unmarshal(foundryToml, &foundryTomlData)
+		var forgeTomlData forgeTomlData
+		err = toml.Unmarshal(forgeToml, &forgeTomlData)
 		if err != nil {
 			return fmt.Errorf("failed to unmarshal foundry.toml: %w", err)
 		}
@@ -123,7 +159,7 @@ var diamondCutUpgradeCmd = &cli.Command{
 			result := upgradeResult{Chain: chain}
 
 			// 获取RPC连接
-			rpcUrl, ok := foundryTomlData.RpcEndpoints[chain]
+			rpcUrl, ok := forgeTomlData.RpcEndpoints[chain]
 			if !ok {
 				result.Error = fmt.Errorf("rpc not found for chain %s", chain)
 				results = append(results, result)
@@ -365,104 +401,9 @@ var diamondCutUpgradeCmd = &cli.Command{
 	},
 }
 
-func bytes2hexFixedWidth(b []byte, width int) string {
-	length := width * 2
-	s := common.Bytes2Hex(b)
-	if len(s) < length {
-		s = strings.Repeat("0", length-len(s)) + s
-	}
-	return "0x" + s
-}
-
-func abiStringArgToInterface(t string, v string) interface{} {
-	switch t {
-	case "uint", "int", "uint256", "int256":
-		bn, ok := new(big.Int).SetString(v, 10)
-		if !ok {
-			panic(fmt.Sprintf("invalid big.Int %s", v))
-		}
-		return bn
-	case "address":
-		return common.HexToAddress(v)
-	}
-	panic(fmt.Sprintf("unsupported type %s", t))
-}
-
-var create2vanityCmd = &cli.Command{
-	Name:  "create2vanity",
-	Usage: "Generate a create2 address with a specific prefix.",
-	Flags: []cli.Flag{
-		&cli.StringFlag{
-			Name:    "prefix",
-			Aliases: []string{"p"},
-			Usage:   "The prefix of the address.",
-		},
-		&cli.StringFlag{
-			Name:    "deployer",
-			Aliases: []string{"d"},
-			Usage:   "The deployer address.",
-		},
-		&cli.StringFlag{
-			Name:    "salt-prefix",
-			Aliases: []string{"sp"},
-			Usage:   "The prefix of the salt. keccak256(salt-prefix + randSaltSuffix)",
-		},
-		&cli.StringFlag{
-			Name:    "contract-bin",
-			Aliases: []string{"cb"},
-			Usage:   "The contract binary.",
-		},
-		&cli.StringSliceFlag{
-			Name:    "constructor-args",
-			Aliases: []string{"ca"},
-			Usage:   "The constructor arguments. uint256:123123",
-		},
-	},
-	Action: func(ctx context.Context, cmd *cli.Command) error {
-		prefix := strings.ToLower(cmd.String("prefix"))
-		deployer := cmd.String("deployer")
-		saltPrefix := cmd.String("salt-prefix")
-		contractBin := cmd.String("contract-bin")
-		constructorArgs := cmd.StringSlice("constructor-args")
-
-		var args abi.Arguments
-		var vals []interface{}
-		for _, arg := range constructorArgs {
-			argParts := strings.Split(arg, ":")
-			abiType, err := abi.NewType(argParts[0], "", nil)
-			if err != nil {
-				return err
-			}
-			args = append(args, abi.Argument{
-				Type: abiType,
-			})
-			vals = append(vals, abiStringArgToInterface(argParts[0], argParts[1]))
-		}
-		argsPacked, err := args.Pack(vals...)
-		if err != nil {
-			return err
-		}
-		initCode := append(common.FromHex(contractBin), argsPacked...)
-		initCodeHash := crypto.Keccak256(initCode)
-
-		saltBytes32 := new([32]byte)
-		for randSaltSuffix := 0; ; randSaltSuffix++ {
-			saltStr := saltPrefix + fmt.Sprintf("%x", randSaltSuffix)
-			salt := crypto.Keccak256([]byte(saltStr))
-			copy(saltBytes32[:], salt)
-			addr := crypto.CreateAddress2(common.HexToAddress(deployer), *saltBytes32, initCodeHash)
-			if strings.HasPrefix(strings.ToLower(addr.String()), prefix) {
-				fmt.Printf("Address: %s\nSalt: %s\n", addr.String(), saltStr)
-				break
-			}
-		}
-		return nil
-	},
-}
-
 var extractFileNamePattern = regexp.MustCompile(`.*\/([^\/]*\.sol)`)
 
-var unflattenCmd = &cli.Command{
+var forgeUnflattenCmd = &cli.Command{
 	Name:  "unflatten",
 	Usage: "Unflatten a flattened solidity file.",
 	Flags: []cli.Flag{
@@ -586,6 +527,102 @@ var unflattenCmd = &cli.Command{
 		}
 		return nil
 	},
+}
+
+func exportAbis(contracts []string, abis map[string]struct{}, dist string) error {
+	for _, contract := range contracts {
+		if !contractHasAnyEntities(contract) {
+			fmt.Printf("contract %s has no entities, skipping\n", contract)
+			continue
+		}
+
+		contract = strings.TrimPrefix(contract, "src/")
+		contractName, contractArtifact, err := getContractArtifact(contract)
+		if err != nil {
+			return err
+		}
+		artifact, err := os.ReadFile(contractArtifact)
+		if err != nil {
+			return err
+		}
+		var artifactData forgeArtifactData
+		err = json.Unmarshal(artifact, &artifactData)
+		if err != nil {
+			return err
+		}
+		targetAbiFolder := filepath.Join(dist, filepath.Dir(contract))
+		_, err = os.Stat(targetAbiFolder)
+		if os.IsNotExist(err) {
+			os.MkdirAll(targetAbiFolder, 0755)
+		} else if err != nil {
+			return err
+		}
+		targetAbiFile := filepath.Join(targetAbiFolder, fmt.Sprintf("%s.json", contractName))
+		abiBytes, err := json.MarshalIndent(artifactData.Abi, "", "  ")
+		if err != nil {
+			return err
+		}
+		err = os.WriteFile(targetAbiFile, abiBytes, 0644)
+		if err != nil {
+			return err
+		}
+		abis[targetAbiFile] = struct{}{}
+	}
+	return nil
+}
+
+func contractHasAnyEntities(contract string) bool {
+	contractContent, err := os.ReadFile(contract)
+	if err != nil {
+		return false
+	}
+	return bytes.Contains(contractContent, []byte("interface ")) ||
+		bytes.Contains(contractContent, []byte("library ")) ||
+		bytes.Contains(contractContent, []byte("contract "))
+}
+
+func getContractArtifact(contract string) (contractName string, contractArtifact string, err error) {
+	contractName = strings.TrimSuffix(filepath.Base(contract), ".sol")
+	contractArtifact = filepath.Join("out", contract, fmt.Sprintf("%s.json", contractName))
+	_, err = os.Stat(contractArtifact)
+	if err != nil && os.IsNotExist(err) {
+		contractArtifactMain := filepath.Join("out", filepath.Base(contract), fmt.Sprintf("%s.json", contractName))
+		_, err = os.Stat(contractArtifactMain)
+		if err != nil {
+			return "", "", fmt.Errorf("contract artifact %s in %s does not exist", contract, contractArtifactMain)
+		}
+		contractArtifact = contractArtifactMain
+	}
+	return
+}
+
+func clearUnusedAbis(abis map[string]struct{}, dist string) error {
+	subFolderAbis, err := filepath.Glob(fmt.Sprintf("%s/*/*.json", dist))
+	if err != nil {
+		return err
+	}
+	mainAbis, err := filepath.Glob(fmt.Sprintf("%s/*.json", dist))
+	if err != nil {
+		return err
+	}
+	allAbis := append(subFolderAbis, mainAbis...)
+	for _, abi := range allAbis {
+		if _, ok := abis[abi]; !ok {
+			if err := os.Remove(abi); err != nil {
+				return errors.Join(fmt.Errorf("failed to remove abi %s", abi), err)
+			}
+		}
+	}
+	return nil
+}
+
+func bytes2hexFixedWidth(b []byte, width int) string {
+	length := width * 2
+	s := common.Bytes2Hex(b)
+	if len(s) < length {
+		s = strings.Repeat("0", length-len(s)) + s
+	}
+	return "0x" + s
 }
 
 // verifyDiamondUpgrade 验证diamond升级是否正确

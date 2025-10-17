@@ -13,161 +13,107 @@ import (
 	"time"
 
 	"github.com/mr-tron/base58"
-	"golang.org/x/sync/errgroup"
+	"github.com/naiba/nb/model"
 )
 
-func addressMatchesCriteria(contains string, mode int, address string) bool {
-	switch mode {
-	case 1:
-		return address[:len(contains)] == contains
-	case 2:
-		return address[len(address)-len(contains):] == contains
-	case 3:
-		return address[:len(contains)] == contains || address[len(address)-len(contains):] == contains
-	default:
-		return false
+type SolanaAddressData struct {
+	address    string
+	privateKey ed25519.PrivateKey
+}
+
+// SolanaAddressGenerator generates Solana addresses
+type SolanaAddressGenerator struct {
+	initialSeedBn     *big.Int
+	initialSeedBnLock *sync.Mutex
+	maxUint256        *big.Int
+}
+
+func NewSolanaAddressGenerator() (*SolanaAddressGenerator, error) {
+	initialSeedBytes := make([]byte, 32)
+	l, err := rand.Read(initialSeedBytes)
+	if err != nil || l != 32 {
+		return nil, fmt.Errorf("failed to generate random seed: %v", err)
 	}
+	initialSeedBn := new(big.Int).SetBytes(initialSeedBytes)
+	maxUint256 := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
+
+	return &SolanaAddressGenerator{
+		initialSeedBn:     initialSeedBn,
+		initialSeedBnLock: &sync.Mutex{},
+		maxUint256:        maxUint256,
+	}, nil
 }
 
-type vanityResult struct {
-	Address    string
-	PrivateKey string
+func (g *SolanaAddressGenerator) Generate() (string, interface{}, error) {
+	g.initialSeedBnLock.Lock()
+	if g.initialSeedBn.Cmp(g.maxUint256) >= 0 {
+		g.initialSeedBnLock.Unlock()
+		return "", nil, fmt.Errorf("seed exhausted")
+	}
+	seedBn := new(big.Int).Set(g.initialSeedBn)
+	g.initialSeedBn.Add(g.initialSeedBn, big.NewInt(1))
+	g.initialSeedBnLock.Unlock()
+
+	var seed [32]byte
+	seedBn.FillBytes(seed[:])
+
+	privateKey := ed25519.NewKeyFromSeed(seed[:])
+	address := base58.Encode(privateKey[32:])
+
+	return address, &SolanaAddressData{
+		address:    address,
+		privateKey: privateKey,
+	}, nil
 }
 
-func VanityAddress(
-	threads int,
-	contains string,
-	mode int,
-	caseSensitive bool,
-	upperOrLower bool,
-) error {
+func VanityAddress(config *model.VanityConfig) error {
 	log.Printf("REMINDER: Solana addresses use Base58 encoding (excludes 0, O, I, l)")
 
 	// Base58 alphabet: 123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz
 	// Excluded: 0 (zero), O (capital o), I (capital i), l (lowercase L)
 	validBase58Chars := "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
-	for _, char := range contains {
+	for _, char := range config.Contains {
 		if !strings.ContainsRune(validBase58Chars, char) {
 			return fmt.Errorf("contains illegal character: %c (Solana addresses use Base58: excludes 0, O, I, l)", char)
 		}
 	}
 
-	containsLower := strings.ToLower(contains)
-	containsUpper := strings.ToUpper(contains)
-
-	initialSeedBytes := make([]byte, 32)
-	l, err := rand.Read(initialSeedBytes)
-	if err != nil || l != 32 {
-		return fmt.Errorf("failed to generate random seed: %v", err)
+	// Create generator
+	generator, err := NewSolanaAddressGenerator()
+	if err != nil {
+		return err
 	}
-	initialSeedBn := new(big.Int).SetBytes(initialSeedBytes)
-	initialSeedBnLock := new(sync.Mutex)
 
-	MAX_UINT256 := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
-	remaining := new(big.Int).Sub(MAX_UINT256, initialSeedBn)
-	estimateSecounds := new(big.Int).Mul(new(big.Int).Div(remaining, big.NewInt(int64(threads*10000000))), big.NewInt(23))
-	secoundsOf100Years := new(big.Int).Mul(big.NewInt(100), big.NewInt(365*24*60*60))
-	if estimateSecounds.Cmp(secoundsOf100Years) == 1 {
-		estimateSecounds = secoundsOf100Years
+	// Estimate remaining addresses and time
+	remaining := new(big.Int).Sub(generator.maxUint256, generator.initialSeedBn)
+	estimateSeconds := new(big.Int).Mul(new(big.Int).Div(remaining, big.NewInt(int64(config.Threads*10000000))), big.NewInt(23))
+	secondsOf100Years := new(big.Int).Mul(big.NewInt(100), big.NewInt(365*24*60*60))
+	if estimateSeconds.Cmp(secondsOf100Years) == 1 {
+		estimateSeconds = secondsOf100Years
 	}
-	estimateTime := time.Duration(estimateSecounds.Uint64()) * time.Second
+	estimateTime := time.Duration(estimateSeconds.Uint64()) * time.Second
 	log.Printf("Remaining addresses to search: %v, estimated time: %v (2.6 GHz 6-Core Intel Core i7)", remaining, estimateTime)
 
-	generateTaskRange := func() (start, end *big.Int) {
-		initialSeedBnLock.Lock()
-		defer initialSeedBnLock.Unlock()
+	// Create searcher
+	searcher := model.NewVanitySearcher(config, generator)
 
-		if initialSeedBn.Cmp(MAX_UINT256) != -1 {
-			panic("Seed exhausted")
-		}
-
-		start = new(big.Int).Set(initialSeedBn)
-
-		end = new(big.Int).Add(initialSeedBn, big.NewInt(10000000))
-		if end.Cmp(MAX_UINT256) == 1 {
-			end.Set(MAX_UINT256)
-		}
-
-		initialSeedBn.Set(end)
-		return
+	// Search
+	result, err := searcher.Search(context.Background())
+	if err != nil {
+		return err
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	// Output result
+	data := result.Data.(*SolanaAddressData)
 
-	g, gctx := errgroup.WithContext(ctx)
-	result := make(chan vanityResult, 1)
+	// Format private key as JSON byte array only when found
+	var privateKeyArray [64]byte
+	copy(privateKeyArray[:], data.privateKey)
+	privateKeyJSON, _ := json.Marshal(privateKeyArray)
 
-	for i := 0; i < threads; i++ {
-		g.Go(func() error {
-			// Pre-allocate buffers to avoid repeated allocations
-			var seed [32]byte
-			var addressLower string
-
-			for {
-				start, end := generateTaskRange()
-				for j := start; j.Cmp(end) == -1; j.Add(j, big.NewInt(1)) {
-					select {
-					case <-gctx.Done():
-						return nil
-					default:
-						j.FillBytes(seed[:])
-						privateKey := ed25519.NewKeyFromSeed(seed[:])
-						address := base58.Encode(privateKey[32:])
-
-						// Pre-compute lowercase version if needed
-						if !caseSensitive || upperOrLower {
-							addressLower = strings.ToLower(address)
-						}
-
-						// Optimized matching logic
-						var passed bool
-						if caseSensitive {
-							passed = addressMatchesCriteria(contains, mode, address)
-						} else if upperOrLower {
-							passed = addressMatchesCriteria(containsLower, mode, addressLower) ||
-								addressMatchesCriteria(containsUpper, mode, address)
-						} else {
-							passed = addressMatchesCriteria(containsLower, mode, addressLower)
-						}
-
-						if passed {
-							// Format private key as JSON byte array (more efficient than fmt.Sprintf)
-							// Convert slice to array for proper JSON marshaling
-							var privateKeyArray [64]byte
-							copy(privateKeyArray[:], privateKey)
-							privateKeyJSON, _ := json.Marshal(privateKeyArray)
-							select {
-							case result <- vanityResult{
-								Address:    address,
-								PrivateKey: string(privateKeyJSON),
-							}:
-								cancel() // 通知其他 goroutine 退出
-							default: // 防止死锁
-							}
-							return nil
-						}
-					}
-				}
-			}
-		})
-	}
-
-	go func() {
-		g.Wait()
-		close(result)
-	}()
-
-	if res, ok := <-result; ok {
-		log.Printf("Address: %s", res.Address)
-		log.Printf("Private Key (bytes): %s", res.PrivateKey)
-
-		// Also print hex for convenience
-		var privateKeyBytes [64]byte
-		if err := json.Unmarshal([]byte(res.PrivateKey), &privateKeyBytes); err == nil {
-			log.Printf("Private Key (hex): %x", privateKeyBytes)
-		}
-	}
+	log.Printf("Address: %s", data.address)
+	log.Printf("Private Key (bytes): %s", string(privateKeyJSON))
+	log.Printf("Private Key (hex): %x", privateKeyArray)
 
 	return nil
 }

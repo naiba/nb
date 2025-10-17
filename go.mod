@@ -1,8 +1,6 @@
 module github.com/naiba/nb
 
-go 1.23.0
-
-toolchain go1.23.2
+go 1.25
 
 require (
 	github.com/AppleGamer22/cocainate v1.1.4
@@ -24,7 +22,6 @@ require (
 	github.com/urfave/cli/v3 v3.0.0-alpha9
 	golang.org/x/crypto v0.36.0
 	golang.org/x/oauth2 v0.27.0
-	golang.org/x/sync v0.12.0
 )
 
 require (
@@ -107,6 +104,7 @@ require (
 	go.uber.org/ratelimit v0.2.0 // indirect
 	go.uber.org/zap v1.21.0 // indirect
 	golang.org/x/net v0.38.0 // indirect
+	golang.org/x/sync v0.12.0 // indirect
 	golang.org/x/sys v0.31.0 // indirect
 	golang.org/x/term v0.30.0 // indirect
 	golang.org/x/text v0.23.0 // indirect

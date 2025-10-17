@@ -7,14 +7,29 @@ import (
 	"github.com/urfave/cli/v3"
 
 	"github.com/naiba/nb/internal/tron"
+	"github.com/naiba/nb/model"
 )
 
 var tronCmd = &cli.Command{
 	Name:  "tron",
 	Usage: "Tron helper.",
 	Commands: []*cli.Command{
-		castCallCmd,
+		tronVanityCmd,
 		rpcProxyCmd,
+	},
+}
+
+var tronVanityCmd = &cli.Command{
+	Name:    "vanity",
+	Aliases: []string{"v"},
+	Usage:   "Generate a vanity Tron address",
+	Flags:   model.VanityFlags(),
+	Action: func(ctx context.Context, cmd *cli.Command) error {
+		config, err := model.ParseVanityConfig(cmd)
+		if err != nil {
+			return err
+		}
+		return tron.VanityAddress(config)
 	},
 }
 
@@ -37,42 +52,6 @@ var rpcProxyCmd = &cli.Command{
 			return fmt.Errorf("RPC endpoint is required")
 		}
 		return tron.RpcProxy(rpcUrl, cmd.StringSlice("override-code"))
-	},
-}
-
-var castCallCmd = &cli.Command{
-	Name:    "cast-call",
-	Aliases: []string{"cc"},
-	Usage:   "Tron cast call helper.",
-	Flags: []cli.Flag{
-		&cli.StringFlag{
-			Name:    "rpc-url",
-			Aliases: []string{"r"},
-			Value:   "https://api.trongrid.io/jsonrpc",
-		},
-		&cli.IntFlag{
-			Name:    "block",
-			Aliases: []string{"b"},
-		},
-		&cli.StringSliceFlag{
-			Name: "override-code",
-		},
-	},
-	Action: func(ctx context.Context, cmd *cli.Command) error {
-		rpcUrl := cmd.String("rpc-url")
-		if rpcUrl == "" {
-			return fmt.Errorf("RPC endpoint is required")
-		}
-		block := cmd.Int("block")
-		if block > 0 {
-			return fmt.Errorf("block number is not supported yet")
-		}
-		for _, arg := range cmd.Args().Slice() {
-			if arg == "-b" || arg == "--block" {
-				return fmt.Errorf("block number is not supported yet")
-			}
-		}
-		return tron.CastCall(rpcUrl, cmd.StringSlice("override-code"), cmd.Args().Slice())
 	},
 }
 
