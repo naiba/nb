@@ -20,22 +20,63 @@ type txContext struct {
 	Amount    *big.Int
 }
 
+// findAssociatedTokenAddressForProgram 根据指定的 token program ID 计算 associated token address
+func findAssociatedTokenAddressForProgram(
+	walletAddress solana.PublicKey,
+	splTokenMintAddress solana.PublicKey,
+	tokenProgramID solana.PublicKey,
+) (solana.PublicKey, uint8, error) {
+	return solana.FindProgramAddress([][]byte{
+		walletAddress[:],
+		tokenProgramID[:],
+		splTokenMintAddress[:],
+	},
+		solana.SPLAssociatedTokenAccountProgramID,
+	)
+}
+
 func CheckSandwichAttack(ctx context.Context, rpcUrl string, signatureString string, userAddress string, tokenAddress string, maxCheckTxCount int) error {
 	addressToCheck := solana.MustPublicKeyFromBase58(userAddress)
 	tokenToCheck := solana.MustPublicKeyFromBase58(tokenAddress)
 	signature := solana.MustSignatureFromBase58(signatureString)
 
-	tokenAccountToCheck, _, err := solana.FindAssociatedTokenAddress(
-		addressToCheck,
-		tokenToCheck,
-	)
-	if err != nil {
-		return err
-	}
-
 	maxSupportedTransactionVersion := uint64(0)
 
 	rpcClient := rpc.New(rpcUrl)
+
+	// 获取 token mint 的账户信息，判断是否为 Token2022
+	mintAccountInfo, err := rpcClient.GetAccountInfo(ctx, tokenToCheck)
+	if err != nil {
+		return fmt.Errorf("failed to get token mint account info: %w", err)
+	}
+	if mintAccountInfo.Value == nil {
+		return fmt.Errorf("token mint account not found")
+	}
+
+	// 根据 token owner 判断是否需要使用 Token2022
+	var tokenAccountToCheck solana.PublicKey
+	isToken2022 := mintAccountInfo.Value.Owner.Equals(solana.Token2022ProgramID)
+	if isToken2022 {
+		// 使用 Token2022 计算 associated token address
+		tokenAccountToCheck, _, err = findAssociatedTokenAddressForProgram(
+			addressToCheck,
+			tokenToCheck,
+			solana.Token2022ProgramID,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to find associated token address for Token2022: %w", err)
+		}
+	} else {
+		// 使用标准 Token 程序计算 associated token address
+		tokenAccountToCheck, _, err = solana.FindAssociatedTokenAddress(
+			addressToCheck,
+			tokenToCheck,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to find associated token address: %w", err)
+		}
+	}
+
 	getTxRet, err := rpcClient.GetTransaction(
 		ctx,
 		signature,
@@ -44,13 +85,28 @@ func CheckSandwichAttack(ctx context.Context, rpcUrl string, signatureString str
 		},
 	)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get transaction request: %w", err)
 	}
 
 	tx, err := getTxRet.Transaction.GetTransaction()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get transaction decode: %w", err)
 	}
+
+	// 打印核心参数
+	log.Println("========== 交易检查核心参数 ==========")
+	log.Printf("区块号 (Slot): %d", getTxRet.Slot)
+	log.Printf("用户地址: %s", addressToCheck.String())
+	log.Printf("Token Mint 地址: %s", tokenToCheck.String())
+	log.Printf("Token 类型: %s", func() string {
+		if isToken2022 {
+			return "Token2022"
+		}
+		return "Token (标准)"
+	}())
+	log.Printf("用户 ATA 账户: %s", tokenAccountToCheck.String())
+	log.Printf("交易签名: %s", signatureString)
+	log.Println("=====================================")
 
 	var addressIdx int = -1
 	for i, acc := range tx.Message.AccountKeys {
@@ -87,7 +143,7 @@ func CheckSandwichAttack(ctx context.Context, rpcUrl string, signatureString str
 		Encoding:                       solana.EncodingBase64,
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get block: %w", err)
 	}
 
 	var relatedTxs []txContext
@@ -127,10 +183,11 @@ func CheckSandwichAttack(ctx context.Context, rpcUrl string, signatureString str
 	}
 
 	if userTxIdx == -1 {
-		return fmt.Errorf("user transaction not found in block")
+		return fmt.Errorf("user transaction not found in block: %d", getTxRet.Slot)
 	}
 
-	log.Printf("User token balance change: %v", balanceChange)
+	log.Printf("用户交易在区块中的索引: %d (共 %d 笔交易)", userTxIdx, len(blockRet.Transactions))
+	log.Printf("用户 Token 余额变化: %v", balanceChange)
 	log.Println(">>>>>>>>> Related transactions <<<<<<<<<")
 	for _, relatedTx := range relatedTxs {
 		var desc string
