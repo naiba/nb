@@ -36,3 +36,15 @@ proxy:
   rpi-http:
     host: 192.168.55.254
     port: 8888
+ccguard:
+  policy: |
+    - 允许所有只读操作（Read, Glob, Grep, 查看型 Bash）
+    - 允许编辑 cmd/ 和 internal/ 目录下的文件
+    - 禁止删除文件、禁止 rm 命令
+    - 遇到多方案选择时询问用户
+  poll_interval: 2s
+  ccr_command: ccr
+  model: gpt-5.2  # 自动选择模型，跳过交互式选择
+  notify:
+    sound: true
+    bell: true

@@ -39,20 +39,19 @@ var githubCoauthoredByCommand = &cli.Command{
 	Aliases: []string{"cab"},
 	Action: func(ctx context.Context, cmd *cli.Command) error {
 		users := cmd.Args().Slice()
-		for i := 0; i < len(users); i++ {
-			resp, err := http.Get("https://api.github.com/users/" + users[i])
+		for _, user := range users {
+			resp, err := http.Get("https://api.github.com/users/" + user)
 			if err != nil {
-				panic(err)
+				return fmt.Errorf("failed to fetch user %s: %w", user, err)
 			}
 			body, err := io.ReadAll(resp.Body)
 			resp.Body.Close()
 			if err != nil {
-				panic(err)
+				return fmt.Errorf("failed to read response for user %s: %w", user, err)
 			}
 			var u GitHubUserInfoResponse
-			err = json.Unmarshal(body, &u)
-			if err != nil {
-				panic(err)
+			if err = json.Unmarshal(body, &u); err != nil {
+				return fmt.Errorf("failed to parse response for user %s: %w", user, err)
 			}
 			fmt.Printf("Co-authored-by: %s <%d+%s@users.noreply.github.com>\n", u.Login, u.ID, u.Login)
 		}

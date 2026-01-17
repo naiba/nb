@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"net"
 	"os"
 
 	"github.com/urfave/cli/v3"
@@ -63,21 +62,15 @@ var rootCmd = &cli.Command{
 
 		var env []string
 
-		proxyName := cmd.String("proxy")
-		if proxyName != "" {
-			if singleton.Config == nil || singleton.Config.Proxy == nil {
-				return fmt.Errorf("proxy configuration not available. Please create a config file at ~/.config/nb.yaml")
-			}
-			server, exists := singleton.Config.Proxy[proxyName]
-			if !exists {
-				return fmt.Errorf("proxy server not found: %s", proxyName)
-			}
-			socksHost, socksPort, _ := net.SplitHostPort(server.Socks)
-			env = append(env, fmt.Sprintf("all_proxy=socks5h://%s:%s", socksHost, socksPort))
-			if server.Http != "" {
-				httpHost, httpPort, _ := net.SplitHostPort(server.Http)
-				env = append(env, fmt.Sprintf("http_proxy=http://%s:%s", httpHost, httpPort))
-				env = append(env, fmt.Sprintf("https_proxy=http://%s:%s", httpHost, httpPort))
+		proxyConfig, err := GetProxyConfig(cmd.String("proxy"))
+		if err != nil {
+			return err
+		}
+		if proxyConfig != nil {
+			env = append(env, fmt.Sprintf("all_proxy=socks5h://%s:%s", proxyConfig.SocksHost, proxyConfig.SocksPort))
+			if proxyConfig.HttpHost != "" {
+				env = append(env, fmt.Sprintf("http_proxy=http://%s:%s", proxyConfig.HttpHost, proxyConfig.HttpPort))
+				env = append(env, fmt.Sprintf("https_proxy=http://%s:%s", proxyConfig.HttpHost, proxyConfig.HttpPort))
 			}
 		}
 

@@ -23,6 +23,7 @@ var gitCmd = &cli.Command{
 		gitWhoCommand,
 		gitSetupCommand,
 		gitSalonCommand,
+		gitCleanHistoryCommand,
 	},
 	Action: func(ctx context.Context, cmd *cli.Command) error {
 		_, env, err := GetGitSSHCommandEnv(cmd.String("git-user"), cmd.String("proxy"))
@@ -114,5 +115,58 @@ var gitWhoCommand = &cli.Command{
 	Name: "whoami",
 	Action: func(ctx context.Context, cmd *cli.Command) error {
 		return internal.BashScriptExecuteInHost("git config --local --list|grep \"user.email\\|user.name\\|core.sshcommand\\|gpg.format\\|user.signingkey\"")
+	},
+}
+
+var gitCleanHistoryCommand = &cli.Command{
+	Name:  "clean-history",
+	Usage: "Clean all commit history, keeping only current files.",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:    "message",
+			Aliases: []string{"m"},
+			Value:   "Initial commit",
+			Usage:   "Commit message for the new initial commit",
+		},
+		&cli.BoolFlag{
+			Name:    "force",
+			Aliases: []string{"f"},
+			Usage:   "Skip confirmation prompt",
+		},
+	},
+	Action: func(ctx context.Context, cmd *cli.Command) error {
+		if !cmd.Bool("force") {
+			fmt.Print("WARNING: This will permanently delete all commit history. Continue? [y/N]: ")
+			var confirm string
+			fmt.Scanln(&confirm)
+			if strings.ToLower(confirm) != "y" {
+				fmt.Println("Aborted.")
+				return nil
+			}
+		}
+
+		// Get current branch name
+		branchBytes, err := internal.ExecuteInHostWithOutput(nil, "git", "rev-parse", "--abbrev-ref", "HEAD")
+		if err != nil {
+			return fmt.Errorf("failed to get current branch: %w", err)
+		}
+		branch := strings.TrimSpace(string(branchBytes))
+
+		message := cmd.String("message")
+		script := fmt.Sprintf(`
+git checkout --orphan temp_clean_history_branch && \
+git add -A && \
+git commit -m "%s" && \
+git branch -D %s && \
+git branch -m %s
+`, message, branch, branch)
+
+		if err := internal.BashScriptExecuteInHost(script); err != nil {
+			return fmt.Errorf("failed to clean history: %w", err)
+		}
+
+		fmt.Println("Successfully cleaned commit history.")
+		fmt.Println("To push changes, run: git push -f origin " + branch)
+		return nil
 	},
 }

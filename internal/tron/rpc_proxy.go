@@ -48,6 +48,9 @@ func RpcProxy(rpcUrl string, overrideCode []string) error {
 	handler := &proxyHandler{
 		target:          targetURL,
 		overrideCodeMap: &overrideCodeMap,
+		httpClient: &http.Client{
+			Timeout: 30 * time.Second,
+		},
 	}
 
 	server := &http.Server{
@@ -73,6 +76,7 @@ type JSONRPCResponse struct {
 type proxyHandler struct {
 	target          *url.URL
 	overrideCodeMap *sync.Map
+	httpClient      *http.Client
 }
 
 func (p *proxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -157,10 +161,7 @@ func (p *proxyHandler) forwardRequestWithBody(w http.ResponseWriter, r *http.Req
 
 	proxyReq.Host = p.target.Host
 
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-	}
-	resp, err := client.Do(proxyReq)
+	resp, err := p.httpClient.Do(proxyReq)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("proxy request failed: %v", err), http.StatusBadGateway)
 		return

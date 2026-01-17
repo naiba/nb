@@ -3,12 +3,10 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"net"
 
 	"github.com/urfave/cli/v3"
 
 	"github.com/naiba/nb/internal"
-	"github.com/naiba/nb/singleton"
 )
 
 var rsyncCmd = &cli.Command{
@@ -18,33 +16,24 @@ var rsyncCmd = &cli.Command{
 	Action: func(ctx context.Context, cmd *cli.Command) error {
 		var proxyCommand string
 
-		proxyName := cmd.String("proxy")
-		if proxyName != "" {
-			if singleton.Config == nil || singleton.Config.Proxy == nil {
-				return fmt.Errorf("proxy configuration not available. Please create a config file at ~/.config/nb.yaml")
-			}
-			server, exists := singleton.Config.Proxy[proxyName]
-			if !exists {
-				return fmt.Errorf("proxy server not found: %s", proxyName)
-			}
-			socksHost, socksPort, _ := net.SplitHostPort(server.Socks)
-			proxyCommand = " -o ProxyCommand=\"nc -X 5 -x " + fmt.Sprintf("%s:%s", socksHost, socksPort) + " %h %p\""
+		proxyConfig, err := GetProxyConfig(cmd.String("proxy"))
+		if err != nil {
+			return err
+		}
+		if proxyConfig != nil {
+			proxyCommand = fmt.Sprintf(" -o ProxyCommand=\"nc -X 5 -x %s:%s %%h %%p\"", proxyConfig.SocksHost, proxyConfig.SocksPort)
 		}
 
 		var extArgs = cmd.Args().Slice()
 		var args []string
 
-		sshServerName := cmd.String("ssh-server")
-		if sshServerName != "" {
-			if singleton.Config == nil || singleton.Config.SSH == nil {
-				return fmt.Errorf("SSH configuration not available. Please create a config file at ~/.config/nb.yaml")
-			}
-			server, exists := singleton.Config.SSH[sshServerName]
-			if !exists {
-				return fmt.Errorf("ssh server not found: %s", sshServerName)
-			}
+		server, err := GetSSHServerConfig(cmd.String("ssh-server"))
+		if err != nil {
+			return err
+		}
+		if server != nil {
 			args = append(args, "-e", fmt.Sprintf("ssh -i %s -p %s%s", server.Prikey, server.GetPort(), proxyCommand))
-			if err := ReplaceRemotePath(extArgs, server); err != nil {
+			if err := ReplaceRemotePath(extArgs, *server); err != nil {
 				return err
 			}
 		}

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net"
 	"strings"
 	"sync"
 
@@ -23,28 +22,19 @@ var sshCmd = &cli.Command{
 	Action: func(ctx context.Context, cmd *cli.Command) error {
 		var args []string
 
-		proxyName := cmd.String("proxy")
-		if proxyName != "" {
-			if singleton.Config == nil || singleton.Config.Proxy == nil {
-				return fmt.Errorf("proxy configuration not available. Please create a config file at ~/.config/nb.yaml")
-			}
-			server, exists := singleton.Config.Proxy[proxyName]
-			if !exists {
-				return fmt.Errorf("proxy server not found: %s", proxyName)
-			}
-			socksHost, socksPort, _ := net.SplitHostPort(server.Socks)
-			args = append(args, "-o", "ProxyCommand=nc -X 5 -x "+fmt.Sprintf("%s:%s", socksHost, socksPort)+" %h %p")
+		proxyConfig, err := GetProxyConfig(cmd.String("proxy"))
+		if err != nil {
+			return err
+		}
+		if proxyConfig != nil {
+			args = append(args, "-o", fmt.Sprintf("ProxyCommand=nc -X 5 -x %s:%s %%h %%p", proxyConfig.SocksHost, proxyConfig.SocksPort))
 		}
 
-		sshServerName := cmd.String("ssh-server")
-		if sshServerName != "" {
-			if singleton.Config == nil || singleton.Config.SSH == nil {
-				return fmt.Errorf("SSH configuration not available. Please create a config file at ~/.config/nb.yaml")
-			}
-			server, exists := singleton.Config.SSH[sshServerName]
-			if !exists {
-				return fmt.Errorf("ssh server not found: %s", sshServerName)
-			}
+		server, err := GetSSHServerConfig(cmd.String("ssh-server"))
+		if err != nil {
+			return err
+		}
+		if server != nil {
 			args = append(args, "-i", server.Prikey)
 			args = append(args, "-p", server.GetPort())
 			args = append(args, server.Login+"@"+server.Host)
@@ -57,7 +47,7 @@ var sshCmd = &cli.Command{
 var sshInsecureCmd = &cli.Command{
 	Name:    "insecure",
 	Aliases: []string{"in"},
-	Usage:   "Scan insecure ssh server.",
+	Usage:   "Scan SSH servers for password authentication vulnerability (tests if server accepts password auth).",
 	Action: func(ctx context.Context, cmd *cli.Command) error {
 		if singleton.Config == nil || singleton.Config.SSH == nil || len(singleton.Config.SSH) == 0 {
 			return fmt.Errorf("SSH configuration not available. Please create a config file at ~/.config/nb.yaml")
@@ -67,20 +57,27 @@ var sshInsecureCmd = &cli.Command{
 		for _, item := range singleton.Config.SSH {
 			go func(s model.SSHAccount) {
 				defer wg.Done()
+				// This config tests if the server accepts password authentication.
+				// If it does (even with wrong password), the server is considered insecure
+				// because it should only allow key-based authentication.
 				config := &ssh.ClientConfig{
 					User: s.Login,
 					Auth: []ssh.AuthMethod{
-						ssh.Password("your_password"),
+						// Empty password to test if password auth is enabled
+						ssh.Password(""),
 					},
+					// WARNING: Host key verification is intentionally disabled for this security scan.
+					// This allows testing servers without prior known_hosts entries.
 					HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 				}
 				addr := fmt.Sprintf("%s:%s", s.Host, s.GetPort())
 				conn, err := ssh.Dial("tcp", addr, config)
 				if err == nil {
 					conn.Close()
-					log.Println("SSH Server:", addr, "is insecure")
+					log.Println("SSH Server:", addr, "is insecure (accepts empty password)")
 				} else if !strings.Contains(err.Error(), "attempted methods [none]") {
-					log.Println("SSH Server:", addr, "is insecure, ", err.Error())
+					// Server allows password auth attempts (insecure - should only allow key auth)
+					log.Println("SSH Server:", addr, "allows password auth:", err.Error())
 				}
 			}(item)
 		}

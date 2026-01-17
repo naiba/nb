@@ -29,7 +29,6 @@ var ethereumCmd = &cli.Command{
 		ethereumVanityCreate1Cmd,
 		ethereumVanityCreate2Cmd,
 		timestampToBlockNumberCmd,
-		checkSandwichAttackCmd,
 	},
 }
 
@@ -80,64 +79,6 @@ var ethereumVanityCreate2Cmd = &cli.Command{
 		constructorArgs := cmd.StringSlice("constructor-args")
 
 		return ethereum.VanityCreate2Address(config, deployer, saltPrefix, contractBin, constructorArgs)
-	},
-}
-
-var checkSandwichAttackCmd = &cli.Command{
-	Name:    "check-sandwich-attack",
-	Usage:   "Check sandwich attack.",
-	Aliases: []string{"csa"},
-	Flags: []cli.Flag{
-		&cli.StringFlag{
-			Name:    "rpc",
-			Aliases: []string{"r"},
-			Usage:   "Ethereum RPC endpoint.",
-			Value:   "https://bsc-rpc.publicnode.com",
-		},
-		&cli.StringFlag{
-			Name:  "tx",
-			Usage: "Transaction hash.",
-		},
-		&cli.StringFlag{
-			Name:    "user",
-			Aliases: []string{"u"},
-			Usage:   "User address.",
-		},
-		&cli.StringFlag{
-			Name:    "token",
-			Aliases: []string{"t"},
-			Usage:   "Token address.",
-		},
-		&cli.IntFlag{
-			Name:    "max-check-tx-count",
-			Aliases: []string{"m"},
-			Usage:   "Max check tx count.",
-			Value:   20,
-		},
-	},
-	Action: func(ctx context.Context, cmd *cli.Command) error {
-		rpc := cmd.String("rpc")
-		if rpc == "" {
-			return fmt.Errorf("rpc endpoint is required")
-		}
-
-		txHash := cmd.String("tx")
-		if txHash == "" {
-			return fmt.Errorf("transaction hash is required")
-		}
-		user := cmd.String("user")
-		if user == "" {
-			return fmt.Errorf("user address is required")
-		}
-		token := cmd.String("token")
-		if token == "" {
-			return fmt.Errorf("token address is required")
-		}
-		maxCheckTxCount := cmd.Int("max-check-tx-count")
-		if maxCheckTxCount == 0 {
-			return fmt.Errorf("max check tx count is required")
-		}
-		return ethereum.CheckSandwichAttack(ctx, rpc, txHash, user, token, int(maxCheckTxCount))
 	},
 }
 
