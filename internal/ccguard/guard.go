@@ -1,28 +1,28 @@
 package ccguard
 
 import (
-	"fmt"
-	"os"
 	"sync"
 	"time"
 )
 
 type Guard struct {
-	mu            sync.RWMutex
-	config        *Config
-	process       *PTYProcess
-	judge         *Judge
-	state         GuardState
-	autoCount     int
-	humanCount    int
-	startTime     time.Time
-	lastOutput    string
-	modelSelector *ModelSelector    // 模型选择器
-	notifier      *PlatformNotifier // 跨平台通知器
-	userInput     chan string
-	stateChange   chan GuardState
-	stopChan      chan struct{} // 停止信号
-	stopOnce      sync.Once     // 确保 stopChan 只关闭一次
+	mu             sync.RWMutex
+	config         *Config
+	process        *PTYProcess
+	judge          *Judge
+	state          GuardState
+	autoCount      int
+	humanCount     int
+	startTime      time.Time
+	lastOutput     string
+	lastOutputTime time.Time         // 最后一次输出变化的时间
+	judgedOutput   string            // 上次AI判断时的输出（避免重复判断）
+	modelSelector  *ModelSelector    // 模型选择器
+	notifier       *PlatformNotifier // 跨平台通知器
+	userInput      chan string
+	stateChange    chan GuardState
+	stopChan       chan struct{} // 停止信号
+	stopOnce       sync.Once     // 确保 stopChan 只关闭一次
 }
 
 func NewGuard(config *Config, task string) *Guard {
@@ -32,34 +32,29 @@ func NewGuard(config *Config, task string) *Guard {
 	}
 
 	return &Guard{
-		config:        config,
-		process:       NewPTYProcess(config.CCRCommand, args...),
-		judge:         NewJudge(config, task),
-		state:         StateRunning,
-		startTime:     time.Now(),
-		modelSelector: NewModelSelector(config.Model),
-		notifier:      NewPlatformNotifier(config.Notify.Bell, config.Notify.Sound),
-		userInput:     make(chan string, DefaultChannelBuffer),
-		stateChange:   make(chan GuardState, DefaultChannelBuffer),
-		stopChan:      make(chan struct{}),
+		config:         config,
+		process:        NewPTYProcess(config.CCRCommand, args...),
+		judge:          NewJudge(config, task),
+		state:          StateRunning,
+		startTime:      time.Now(),
+		lastOutputTime: time.Now(),
+		modelSelector:  NewModelSelector(config.Model),
+		notifier:       NewPlatformNotifier(config.Notify.Bell, config.Notify.Sound),
+		userInput:      make(chan string, DefaultChannelBuffer),
+		stateChange:    make(chan GuardState, DefaultChannelBuffer),
+		stopChan:       make(chan struct{}),
 	}
 }
 
 func (g *Guard) Start() error {
-	DebugLog("Guard.Start() 开始")
-
 	// 设置暂停/恢复切换回调 (Ctrl+G)
 	g.process.SetToggleCallback(func() {
 		g.mu.Lock()
 		switch g.state {
 		case StateRunning:
 			g.state = StatePaused
-			DebugLog("状态变更: Running -> Paused (用户按下 Ctrl+G)")
-			fmt.Fprintf(os.Stderr, "\r\n[CCGuard] 已暂停自动控制 (Ctrl+G 恢复)\r\n")
 		case StatePaused:
 			g.state = StateRunning
-			DebugLog("状态变更: Paused -> Running (用户按下 Ctrl+G)")
-			fmt.Fprintf(os.Stderr, "\r\n[CCGuard] 已恢复自动控制\r\n")
 		}
 		g.mu.Unlock()
 	})
@@ -68,7 +63,6 @@ func (g *Guard) Start() error {
 	g.process.SetUserInputCallback(func() {
 		g.mu.Lock()
 		if g.state == StateWaitingUser {
-			DebugLog("状态变更: WaitingUser -> Running (用户手动输入)")
 			g.state = StateRunning
 		}
 		g.mu.Unlock()
@@ -76,25 +70,15 @@ func (g *Guard) Start() error {
 
 	// 设置退出回调 (Ctrl+\)
 	g.process.SetExitCallback(func() {
-		DebugLog("收到退出信号 (Ctrl+\\)")
-		fmt.Fprintf(os.Stderr, "\r\n[CCGuard] 正在退出...\r\n")
 		g.Stop()
 	})
 
 	// 设置子进程退出回调
 	g.process.SetProcessExitCallback(func() {
-		DebugLog("子进程已退出，停止 Guard")
-		fmt.Fprintf(os.Stderr, "\r\n[CCGuard] ccr 已退出\r\n")
 		g.Stop()
 	})
 
-	err := g.process.Start()
-	if err != nil {
-		DebugLog("Guard.Start() 失败: %v", err)
-	} else {
-		DebugLog("Guard.Start() 成功，进程已启动")
-	}
-	return err
+	return g.process.Start()
 }
 
 // Stop 停止Guard
@@ -115,14 +99,12 @@ func (g *Guard) GetRecentOutput() string {
 }
 
 func (g *Guard) Run() error {
-	DebugLog("Guard.Run() 主循环开始")
 	ticker := time.NewTicker(g.config.PollInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-g.stopChan:
-			DebugLog("Guard.Run() 收到停止信号，退出主循环")
 			return nil
 
 		case <-ticker.C:
@@ -135,7 +117,6 @@ func (g *Guard) Run() error {
 			}
 
 			if !g.process.IsRunning() {
-				DebugLog("子进程已退出，停止 Guard")
 				g.mu.Lock()
 				g.state = StateStopped
 				g.mu.Unlock()
@@ -143,76 +124,77 @@ func (g *Guard) Run() error {
 			}
 
 			output := g.process.GetRecentOutput()
-			if output == g.lastOutput {
-				continue // 无新输出
-			}
-			g.lastOutput = output
-			DebugLogOutput("检测到新输出", output)
 
-			// 检测模型选择提示，自动输入配置的模型
-			if handled := g.handleModelSelection(output); handled {
-				continue
+			// 检测输出是否变化
+			if output != g.lastOutput {
+				g.lastOutput = output
+				g.lastOutputTime = time.Now()
+
+				// 检测模型选择提示，自动输入配置的模型
+				if handled := g.handleModelSelection(output); handled {
+					continue
+				}
+				continue // 输出还在变化，继续等待
 			}
 
-			DebugLog("调用 Judge.Decide() 进行判断")
+			// 输出已稳定，检查是否达到空闲超时
+			idleDuration := time.Since(g.lastOutputTime)
+			if idleDuration < g.config.IdleTimeout {
+				continue // 还未达到空闲超时
+			}
+
+			// 检查是否已经对此输出进行过判断
+			if output == g.judgedOutput {
+				continue // 已经判断过，不重复判断
+			}
+
+			// 输出已停止且未判断过，调用AI进行判断
+			g.judgedOutput = output // 标记为已判断
+
 			decision, err := g.judge.Decide(output)
 			if err != nil {
-				DebugLog("Judge.Decide() 错误: %v", err)
-				fmt.Fprintf(os.Stderr, "\r\n[守卫] 判断失败: %v\r\n", err)
 				continue
 			}
 
-			DebugLog("判断结果: Action=%s, Content=%s", decision.Action, decision.Content)
-
 			switch decision.Action {
-			case "WAIT":
-				DebugLog("动作: WAIT - 继续等待")
+			case "NONE", "WAIT":
+				// 无需操作，不记录日志
+			case "CLEAR":
+				DebugLog("执行: CLEAR - 清理输入框")
+				g.cleanInputResidue(output)
+				g.judgedOutput = ""
 			case "SELECT":
-				// 选择操作：只发送按键，不需要回车
-				DebugLog("动作: SELECT - 自动选择: %s", decision.Content)
+				DebugLog("执行: SELECT - %s", decision.Content)
 				g.process.SendInput(decision.Content)
 				g.mu.Lock()
 				g.autoCount++
 				g.mu.Unlock()
-				fmt.Fprintf(os.Stderr, "[守卫] 自动选择: %s\n", decision.Content)
+				g.judgedOutput = ""
 			case "INPUT":
-				// 检测是否是选择场景（有导航提示），选择场景不需要回车
-				if IsSelectScene(output) {
-					// 选择场景：只发送按键，不需要回车
-					DebugLog("动作: INPUT (检测为选择场景) - 自动选择: %s", decision.Content)
-					g.process.SendInput(decision.Content)
-					g.mu.Lock()
-					g.autoCount++
-					g.mu.Unlock()
-					fmt.Fprintf(os.Stderr, "[守卫] 自动选择: %s\n", decision.Content)
-				} else {
-					// 输入场景：发送内容后需要回车
-					DebugLog("动作: INPUT - 自动输入: %s", decision.Content)
-					g.process.SendInput(decision.Content + "\n")
-					g.mu.Lock()
-					g.autoCount++
-					g.mu.Unlock()
-					fmt.Fprintf(os.Stderr, "[守卫] 自动输入: %s\n", decision.Content)
-				}
+				DebugLog("执行: INPUT - %s", decision.Content)
+				g.process.SendInput(decision.Content)
+				time.Sleep(50 * time.Millisecond)
+				g.process.SendInput("\n")
+				g.mu.Lock()
+				g.autoCount++
+				g.mu.Unlock()
+				g.judgedOutput = ""
 			case "HUMAN":
-				DebugLog("动作: HUMAN - 需要人工介入: %s", decision.Content)
+				DebugLog("执行: HUMAN - %s", decision.Content)
 				g.mu.Lock()
 				g.state = StateWaitingUser
 				g.humanCount++
 				g.mu.Unlock()
 				g.notifier.Notify()
-				fmt.Fprintf(os.Stderr, "\n[守卫] 需要人工介入: %s\n", decision.Content)
 			}
 
 		case input := <-g.userInput:
-			DebugLog("收到用户输入: %s", input)
 			g.process.SendInput(input + "\n")
 			g.mu.Lock()
 			g.state = StateRunning
 			g.mu.Unlock()
 
 		case newState := <-g.stateChange:
-			DebugLog("状态变更请求: %d", newState)
 			g.mu.Lock()
 			g.state = newState
 			g.mu.Unlock()
@@ -225,9 +207,7 @@ func (g *Guard) SendUserInput(input string) {
 	select {
 	case g.userInput <- input:
 	case <-g.stopChan:
-		// Guard 已停止，忽略输入
 	default:
-		DebugLog("SendUserInput: channel 已满，丢弃输入")
 	}
 }
 
@@ -236,9 +216,7 @@ func (g *Guard) SetState(state GuardState) {
 	select {
 	case g.stateChange <- state:
 	case <-g.stopChan:
-		// Guard 已停止，忽略状态变更
 	default:
-		DebugLog("SetState: channel 已满，丢弃状态变更")
 	}
 }
 
@@ -270,39 +248,35 @@ func (g *Guard) Close() {
 	g.mu.Unlock()
 }
 
+// cleanInputResidue 清理输入框残留
+func (g *Guard) cleanInputResidue(output string) {
+	residueInfo := DetectInputResidue(output)
+	if !residueInfo.HasResidue {
+		return
+	}
+	for range len(residueInfo.Residue) {
+		g.process.SendInput("\x7f") // 退格键 (DEL)
+	}
+}
+
 // handleModelSelection 检测模型选择提示并自动输入配置的模型
-// 返回 true 表示已处理模型选择
 func (g *Guard) handleModelSelection(output string) bool {
-	// 使用 ModelSelector 检查
 	if !g.modelSelector.IsConfigured() || g.modelSelector.IsSelected() {
 		return false
 	}
-
-	// 检测是否包含模型选择提示
 	if !g.modelSelector.NeedsSelection(output) {
 		return false
 	}
 
-	DebugLog("检测到模型选择提示")
-
-	// 查找配置的模型对应的编号
 	modelNum := g.modelSelector.FindModelNumber(output)
 	if modelNum == "" {
-		// 配置的模型名称不在列表中
-		DebugLog("警告: 配置的模型 '%s' 不在可用列表中", g.modelSelector.GetModelName())
-		fmt.Fprintf(os.Stderr, "[守卫] 警告: 配置的模型 '%s' 不在可用列表中\n", g.modelSelector.GetModelName())
 		return false
 	}
 
-	DebugLog("自动选择模型: %s (编号 %s)", g.modelSelector.GetModelName(), modelNum)
-	// ccr 的模型选择需要回车确认（和 Claude Code 内部的选项选择不同）
 	g.process.SendInput(modelNum + "\n")
-
 	g.mu.Lock()
 	g.autoCount++
 	g.mu.Unlock()
-
 	g.modelSelector.MarkSelected()
-	fmt.Fprintf(os.Stderr, "[守卫] 自动选择模型: %s (编号 %s)\n", g.modelSelector.GetModelName(), modelNum)
 	return true
 }

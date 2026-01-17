@@ -36,7 +36,8 @@ const (
 
 	// 超时设置
 	DefaultJudgeTimeout = 60 * time.Second
-	DefaultPollInterval = 2 * time.Second
+	DefaultPollInterval = 500 * time.Millisecond // 检测频率提高
+	DefaultIdleTimeout  = 3 * time.Second        // 输出停止后多久触发AI判断
 
 	// 日志设置
 	DefaultLogMaxLen = 2000

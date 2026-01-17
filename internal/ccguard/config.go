@@ -13,6 +13,7 @@ import (
 type Config struct {
 	Policy       string        `yaml:"policy"`
 	PollInterval time.Duration `yaml:"poll_interval"`
+	IdleTimeout  time.Duration `yaml:"idle_timeout"` // 输出停止后多久触发AI判断
 	CCRCommand   string        `yaml:"ccr_command"`
 	Model        string        `yaml:"model"`
 	Notify       struct {
@@ -56,6 +57,9 @@ func LoadConfig() *Config {
 	// 设置默认值
 	if cfg.PollInterval == 0 {
 		cfg.PollInterval = DefaultPollInterval
+	}
+	if cfg.IdleTimeout == 0 {
+		cfg.IdleTimeout = DefaultIdleTimeout
 	}
 	if cfg.CCRCommand == "" {
 		cfg.CCRCommand = "ccr"

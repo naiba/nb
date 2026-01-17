@@ -71,15 +71,13 @@ func (l *Logger) Log(format string, args ...interface{}) {
 	l.file.Sync()
 }
 
-// LogOutput 记录输出内容（截断过长内容）
+// LogOutput 记录输出内容（清理ANSI颜色代码）
 func (l *Logger) LogOutput(label string, content string) {
 	if l == nil || !l.enabled {
 		return
 	}
-
-	if len(content) > DefaultLogMaxLen {
-		content = content[:DefaultLogMaxLen] + "...[截断]"
-	}
+	// 清理 ANSI 颜色代码
+	content = ansiRegex.ReplaceAllString(content, "")
 	l.Log("%s:\n%s", label, content)
 }
 

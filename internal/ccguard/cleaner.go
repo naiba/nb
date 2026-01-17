@@ -7,12 +7,14 @@ import (
 
 // 预编译正则表达式，避免每次调用时重复编译
 var (
-	ansiRegex        = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07`)
-	boxCharsRegex    = regexp.MustCompile(`[─│┌┐└┘├┤┬┴┼╭╮╯╰]`)
-	animationRegex   = regexp.MustCompile(`^[✻✶✳✢·✽⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]\s+\S+…`)
-	shortcutsRegex   = regexp.MustCompile(`^\?\s+for\s+shortcuts`)
+	ansiRegex         = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07`)
+	boxCharsRegex     = regexp.MustCompile(`[─│┌┐└┘├┤┬┴┼╭╮╯╰]`)
+	animationRegex    = regexp.MustCompile(`^[✻✶✳✢·✽⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]\s+\S+…`)
+	shortcutsRegex    = regexp.MustCompile(`^\?\s+for\s+shortcuts`)
 	multiNewlineRegex = regexp.MustCompile(`\n{3,}`)
-	modelPatternRegex = regexp.MustCompile(`(\d+)\.\s+(\S+)`)
+	modelPatternRegex = regexp.MustCompile(`(\d+)\.\s+(\S+)`) // 用于解析模型选择列表
+	// 输入框残留检测：❯ 后面跟着短残留内容（1-3个字符，通常是数字或字母）
+	inputResidueRegex = regexp.MustCompile(`❯\s+([0-9]{1,2})$`)
 )
 
 // OutputCleaner 输出清理器
@@ -86,7 +88,7 @@ func CleanOutput(s string) string {
 	return defaultCleaner.Clean(s)
 }
 
-// SceneDetector 场景检测器
+// SceneDetector 场景检测器（简化版，仅保留必要功能）
 type SceneDetector struct{}
 
 // NewSceneDetector 创建场景检测器
@@ -95,6 +97,7 @@ func NewSceneDetector() *SceneDetector {
 }
 
 // IsSelectScene 检测是否是选择场景（有导航提示）
+// 用于判断输入后是否需要回车
 func (d *SceneDetector) IsSelectScene(output string) bool {
 	lower := strings.ToLower(output)
 	return strings.Contains(output, "↑/↓") ||
@@ -102,37 +105,32 @@ func (d *SceneDetector) IsSelectScene(output string) bool {
 		strings.Contains(lower, "enter to select")
 }
 
-// HasNavigationHint 检测是否有导航提示
-func (d *SceneDetector) HasNavigationHint(output string) bool {
-	lower := strings.ToLower(output)
-	return strings.Contains(lower, "enter to select") ||
-		strings.Contains(output, "↑/↓") ||
-		strings.Contains(lower, "to navigate") ||
-		strings.Contains(lower, "esc to cancel")
+// InputResidueInfo 输入框残留信息
+type InputResidueInfo struct {
+	HasResidue bool   // 是否有残留
+	Residue    string // 残留内容
 }
 
-// HasNumberedOptions 检测是否有编号选项
-func (d *SceneDetector) HasNumberedOptions(output string) bool {
-	return strings.Contains(output, "1.") && strings.Contains(output, "2.")
-}
-
-// HasConfirmPrompt 检测是否有确认提示
-func (d *SceneDetector) HasConfirmPrompt(output string) bool {
-	lower := strings.ToLower(output)
-	return strings.Contains(lower, "do you want to proceed") ||
-		strings.Contains(lower, "(y/n)") ||
-		strings.Contains(lower, "[y/n]")
-}
-
-// NeedsDecision 检测输出是否需要进行决策判断
-func (d *SceneDetector) NeedsDecision(output string) bool {
-	if d.HasNumberedOptions(output) && d.HasNavigationHint(output) {
-		return true
+// DetectInputResidue 检测输入框残留内容
+// 检测 ❯ 后面是否有残留的数字（如选择后遗留的 "1" 或 "2"）
+func (d *SceneDetector) DetectInputResidue(output string) InputResidueInfo {
+	// 先清理 ANSI 转义序列（包括光标等）
+	cleanedOutput := StripANSI(output)
+	// 按行查找，只检查最后几行（输入框通常在底部）
+	lines := strings.Split(cleanedOutput, "\n")
+	for i := len(lines) - 1; i >= 0 && i >= len(lines)-5; i-- {
+		line := strings.TrimSpace(lines[i])
+		if matches := inputResidueRegex.FindStringSubmatch(line); len(matches) > 1 {
+			residue := strings.TrimSpace(matches[1])
+			if residue != "" {
+				return InputResidueInfo{
+					HasResidue: true,
+					Residue:    residue,
+				}
+			}
+		}
 	}
-	if d.HasConfirmPrompt(output) {
-		return true
-	}
-	return false
+	return InputResidueInfo{HasResidue: false}
 }
 
 // 全局场景检测器实例
@@ -143,7 +141,7 @@ func IsSelectScene(output string) bool {
 	return defaultSceneDetector.IsSelectScene(output)
 }
 
-// NeedsDecision 全局函数，检测是否需要决策
-func NeedsDecision(output string) bool {
-	return defaultSceneDetector.NeedsDecision(output)
+// DetectInputResidue 全局函数，检测输入框残留
+func DetectInputResidue(output string) InputResidueInfo {
+	return defaultSceneDetector.DetectInputResidue(output)
 }
