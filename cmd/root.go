@@ -45,8 +45,8 @@ var rootCmd = &cli.Command{
 			Usage:   "Print version.",
 		},
 	},
-	Before: func(ctx context.Context, cmd *cli.Command) error {
-		return singleton.Init(cmd.String("config-path"))
+	Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
+		return ctx, singleton.Init(cmd.String("config-path"))
 	},
 	Action: func(ctx context.Context, cmd *cli.Command) error {
 		if cmd.Bool("version") {

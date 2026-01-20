@@ -163,18 +163,17 @@ func (g *Guard) Run() error {
 				DebugLog("执行: CLEAR - 清理输入框")
 				g.cleanInputResidue(output)
 				g.judgedOutput = ""
-			case "SELECT":
-				DebugLog("执行: SELECT - %s", decision.Content)
+			case "SELECT", "INPUT":
+				DebugLog("执行: %s - %s", decision.Action, decision.Content)
+				// 先清空输入框残留
+				g.cleanInputResidue(output)
 				g.process.SendInput(decision.Content)
-				g.mu.Lock()
-				g.autoCount++
-				g.mu.Unlock()
-				g.judgedOutput = ""
-			case "INPUT":
-				DebugLog("执行: INPUT - %s", decision.Content)
-				g.process.SendInput(decision.Content)
-				time.Sleep(50 * time.Millisecond)
-				g.process.SendInput("\n")
+				// 如果有输入框，发送回车
+				if HasInputPrompt(output) {
+					time.Sleep(50 * time.Millisecond)
+					g.process.SendInput("\r")
+					DebugLog("%s: 检测到输入框，发送回车", decision.Action)
+				}
 				g.mu.Lock()
 				g.autoCount++
 				g.mu.Unlock()
@@ -189,7 +188,7 @@ func (g *Guard) Run() error {
 			}
 
 		case input := <-g.userInput:
-			g.process.SendInput(input + "\n")
+			g.process.SendInput(input + "\r")
 			g.mu.Lock()
 			g.state = StateRunning
 			g.mu.Unlock()
@@ -273,7 +272,7 @@ func (g *Guard) handleModelSelection(output string) bool {
 		return false
 	}
 
-	g.process.SendInput(modelNum + "\n")
+	g.process.SendInput(modelNum + "\r")
 	g.mu.Lock()
 	g.autoCount++
 	g.mu.Unlock()

@@ -530,43 +530,60 @@ var forgeUnflattenCmd = &cli.Command{
 }
 
 func exportAbis(contracts []string, abis map[string]struct{}, dist string) error {
+	var errs []error
 	for _, contract := range contracts {
 		if !contractHasAnyEntities(contract) {
-			fmt.Printf("contract %s has no entities, skipping\n", contract)
+			fmt.Printf("⏭️  %s has no entities, skipping\n", contract)
 			continue
 		}
 
-		contract = strings.TrimPrefix(contract, "src/")
-		contractName, contractArtifact, err := getContractArtifact(contract)
+		contractPath := strings.TrimPrefix(contract, "src/")
+		contractName, contractArtifact, err := getContractArtifact(contractPath)
 		if err != nil {
-			return err
+			fmt.Printf("❌ %s: %v\n", contract, err)
+			errs = append(errs, fmt.Errorf("%s: %w", contract, err))
+			continue
 		}
 		artifact, err := os.ReadFile(contractArtifact)
 		if err != nil {
-			return err
+			fmt.Printf("❌ %s: failed to read artifact: %v\n", contract, err)
+			errs = append(errs, fmt.Errorf("%s: %w", contract, err))
+			continue
 		}
 		var artifactData forgeArtifactData
 		err = json.Unmarshal(artifact, &artifactData)
 		if err != nil {
-			return err
+			fmt.Printf("❌ %s: failed to parse artifact: %v\n", contract, err)
+			errs = append(errs, fmt.Errorf("%s: %w", contract, err))
+			continue
 		}
-		targetAbiFolder := filepath.Join(dist, filepath.Dir(contract))
+		targetAbiFolder := filepath.Join(dist, filepath.Dir(contractPath))
 		_, err = os.Stat(targetAbiFolder)
 		if os.IsNotExist(err) {
 			os.MkdirAll(targetAbiFolder, 0755)
 		} else if err != nil {
-			return err
+			fmt.Printf("❌ %s: failed to check target folder: %v\n", contract, err)
+			errs = append(errs, fmt.Errorf("%s: %w", contract, err))
+			continue
 		}
 		targetAbiFile := filepath.Join(targetAbiFolder, fmt.Sprintf("%s.json", contractName))
 		abiBytes, err := json.MarshalIndent(artifactData.Abi, "", "  ")
 		if err != nil {
-			return err
+			fmt.Printf("❌ %s: failed to marshal abi: %v\n", contract, err)
+			errs = append(errs, fmt.Errorf("%s: %w", contract, err))
+			continue
 		}
 		err = os.WriteFile(targetAbiFile, abiBytes, 0644)
 		if err != nil {
-			return err
+			fmt.Printf("❌ %s: failed to write abi: %v\n", contract, err)
+			errs = append(errs, fmt.Errorf("%s: %w", contract, err))
+			continue
 		}
 		abis[targetAbiFile] = struct{}{}
+		fmt.Printf("✅ %s\n", contractName)
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("failed to export %d contract(s)", len(errs))
 	}
 	return nil
 }

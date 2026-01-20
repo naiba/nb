@@ -15,6 +15,12 @@ var (
 	modelPatternRegex = regexp.MustCompile(`(\d+)\.\s+(\S+)`) // 用于解析模型选择列表
 	// 输入框残留检测：❯ 后面跟着短残留内容（1-3个字符，通常是数字或字母）
 	inputResidueRegex = regexp.MustCompile(`❯\s+([0-9]{1,2})$`)
+	// HTML meta 标签清理：移除可能导致 shell 解析问题的 HTML 标签
+	// 例如 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+	// 中的 "initial-scale=1," 可能被 shell 误解析为命令
+	htmlMetaRegex = regexp.MustCompile(`<meta[^>]*>`)
+	// HTML 标签内的属性值，可能包含 shell 敏感字符
+	htmlTagRegex = regexp.MustCompile(`<[a-zA-Z][^>]*>`)
 )
 
 // OutputCleaner 输出清理器
@@ -88,6 +94,17 @@ func CleanOutput(s string) string {
 	return defaultCleaner.Clean(s)
 }
 
+// SanitizeForPrompt 清理输出以便安全地用于 AI prompt
+// 移除可能导致 shell 解析问题的 HTML 标签（如 <meta viewport>）
+// 保留文本内容以便 AI 理解上下文
+func SanitizeForPrompt(s string) string {
+	// 移除 HTML meta 标签（这些通常包含可能被 shell 误解析的属性）
+	s = htmlMetaRegex.ReplaceAllString(s, "[HTML meta tag removed]")
+	// 可选：移除其他 HTML 标签，但保留内容
+	// s = htmlTagRegex.ReplaceAllString(s, "")
+	return s
+}
+
 // SceneDetector 场景检测器（简化版，仅保留必要功能）
 type SceneDetector struct{}
 
@@ -133,12 +150,32 @@ func (d *SceneDetector) DetectInputResidue(output string) InputResidueInfo {
 	return InputResidueInfo{HasResidue: false}
 }
 
+// HasInputPrompt 检测是否有输入框提示符（❯）
+// 用于判断 SELECT 操作是否需要发送回车
+func (d *SceneDetector) HasInputPrompt(output string) bool {
+	cleanedOutput := StripANSI(output)
+	lines := strings.Split(cleanedOutput, "\n")
+	// 检查最后几行是否有输入提示符
+	for i := len(lines) - 1; i >= 0 && i >= len(lines)-5; i-- {
+		line := strings.TrimSpace(lines[i])
+		if strings.Contains(line, "❯") {
+			return true
+		}
+	}
+	return false
+}
+
 // 全局场景检测器实例
 var defaultSceneDetector = NewSceneDetector()
 
 // IsSelectScene 全局函数，检测是否是选择场景
 func IsSelectScene(output string) bool {
 	return defaultSceneDetector.IsSelectScene(output)
+}
+
+// HasInputPrompt 全局函数，检测是否有输入框
+func HasInputPrompt(output string) bool {
+	return defaultSceneDetector.HasInputPrompt(output)
 }
 
 // DetectInputResidue 全局函数，检测输入框残留
