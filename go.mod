@@ -6,7 +6,6 @@ require (
 	github.com/AppleGamer22/cocainate v1.1.4
 	github.com/blang/semver v3.5.1+incompatible
 	github.com/cloudflare/cloudflare-go v0.116.0
-	github.com/creack/pty v1.1.24
 	github.com/dimiro1/banner v1.1.0
 	github.com/ethereum/go-ethereum v1.16.8
 	github.com/gagliardetto/binary v0.8.0
@@ -23,8 +22,6 @@ require (
 	github.com/urfave/cli/v3 v3.6.2
 	golang.org/x/crypto v0.47.0
 	golang.org/x/oauth2 v0.34.0
-	golang.org/x/term v0.39.0
-	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -111,6 +108,7 @@ require (
 	golang.org/x/net v0.48.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
+	golang.org/x/term v0.39.0 // indirect
 	golang.org/x/text v0.33.0 // indirect
 	golang.org/x/time v0.10.0 // indirect
 )

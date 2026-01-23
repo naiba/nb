@@ -36,14 +36,6 @@ nb tron vanity -p T9y                # TRON: T9y...
 nb solana check-sandwich-attack --rpc https://api.mainnet-beta.solana.com --tx <signature>
 ```
 
-### Claude Code Guard
-
-自动化处理 Claude Code CLI 的简单确认，TUI 界面可随时接管：
-
-```sh
-nb ccguard "Help me refactor this code"
-```
-
 ## 配置
 
 首次运行 `nb` 会生成配置文件 `~/.config/nb.yaml`，配置你的代理、SSH 主机和 Git 账号：
