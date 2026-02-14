@@ -79,7 +79,7 @@ var gitCommitCommand = &cli.Command{
 	},
 }
 
-var getGitDirectoryName = regexp.MustCompile(`\/([^\/]*)\.git`)
+var getGitDirectoryName = regexp.MustCompile(`(?:^|[/:])([^/:]+?)(?:\.git)?$`)
 
 var gitSalonCommand = &cli.Command{
 	Name:            "salon",
@@ -90,24 +90,41 @@ var gitSalonCommand = &cli.Command{
 		if err != nil {
 			return err
 		}
-		args = append(args, cmd.Args().Slice()...)
 
-		matched := getGitDirectoryName.FindAllStringSubmatch(strings.Join(args, " "), 1)
-		if len(matched[0]) != 2 {
-			return fmt.Errorf("failed to parse git directory name from %s", args)
+		cmdArgs := cmd.Args().Slice()
+		args = append(args, cmdArgs...)
+
+		var dirName string
+		var nonFlagArgs []string
+		for _, arg := range cmdArgs {
+			if !strings.HasPrefix(arg, "-") {
+				nonFlagArgs = append(nonFlagArgs, arg)
+			}
 		}
+		if len(nonFlagArgs) >= 2 {
+			dirName = nonFlagArgs[len(nonFlagArgs)-1]
+		} else if len(nonFlagArgs) == 1 {
+			matched := getGitDirectoryName.FindStringSubmatch(nonFlagArgs[0])
+			if len(matched) < 2 {
+				return fmt.Errorf("failed to parse git directory name from %s", nonFlagArgs[0])
+			}
+			dirName = matched[1]
+		} else {
+			return fmt.Errorf("missing git repository URL")
+		}
+
 		if err := internal.ExecuteInHost(env, "git", args...); err != nil {
 			return err
 		}
 
-		args = []string{"cd", matched[0][1], "&&", "nb"}
+		setupArgs := []string{"cd", dirName, "&&", "nb"}
 		if cmd.String("proxy") != "" {
-			args = append(args, "-p "+cmd.String("proxy"))
+			setupArgs = append(setupArgs, "-p "+cmd.String("proxy"))
 		}
-		args = append(args, "-gu "+cmd.String("git-user"))
-		args = append(args, "git setup")
+		setupArgs = append(setupArgs, "-gu "+cmd.String("git-user"))
+		setupArgs = append(setupArgs, "git setup")
 
-		return internal.BashScriptExecuteInHost(strings.Join(args, " "))
+		return internal.BashScriptExecuteInHost(strings.Join(setupArgs, " "))
 	},
 }
 
