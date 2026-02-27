@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"encoding/hex"
 	"strings"
 )
 
@@ -21,21 +22,29 @@ func NewVanityMatcher(config *VanityConfig) *VanityMatcher {
 	}
 }
 
-// Match checks if an address matches the configured criteria
-// address should be without 0x prefix for Ethereum addresses
 func (m *VanityMatcher) Match(address string) bool {
-	// Optimized matching logic
+	if m.config.Mask != nil {
+		addrBytes, err := hex.DecodeString(address)
+		if err != nil || len(addrBytes) != 20 {
+			return false
+		}
+		for i := range m.config.Mask {
+			if addrBytes[i]&m.config.Mask[i] != m.config.MaskValue[i] {
+				return false
+			}
+		}
+		if m.config.Contains == "" {
+			return true
+		}
+	}
+
 	var passed bool
 	if m.config.CaseSensitive {
-		// Case sensitive: match exact pattern
 		passed = m.matchesCriteria(m.config.Contains, address)
 	} else if m.config.UpperOrLower {
-		// Upper-or-lower: address must match all uppercase OR all lowercase pattern
-		// Do NOT modify address, only match against upper/lower patterns
 		passed = m.matchesCriteria(m.containsLower, address) ||
 			m.matchesCriteria(m.containsUpper, address)
 	} else {
-		// Case insensitive: convert address to lowercase and match
 		addressLower := strings.ToLower(address)
 		passed = m.matchesCriteria(m.containsLower, addressLower)
 	}

@@ -44,12 +44,18 @@ func (g *EthereumAddressGenerator) Generate() (string, interface{}, error) {
 func VanityAddress(config *model.VanityConfig) error {
 	log.Printf("REMINDER: Ethereum addresses only contain hexadecimal characters (0-9, a-f, A-F)")
 
-	// Validate that contains only has valid hex characters
-	validHexChars := "0123456789abcdefABCDEF"
-	for _, char := range config.Contains {
-		if !strings.ContainsRune(validHexChars, char) {
-			return fmt.Errorf("contains illegal character: %c (Ethereum addresses only contain 0-9, a-f, A-F)", char)
+	if config.Contains != "" {
+		validHexChars := "0123456789abcdefABCDEF"
+		for _, char := range config.Contains {
+			if !strings.ContainsRune(validHexChars, char) {
+				return fmt.Errorf("contains illegal character: %c (Ethereum addresses only contain 0-9, a-f, A-F)", char)
+			}
 		}
+	}
+
+	if config.Mask != nil {
+		log.Printf("Mask: 0x%x", config.Mask)
+		log.Printf("MaskValue: 0x%x", config.MaskValue)
 	}
 
 	// Estimate remaining addresses
