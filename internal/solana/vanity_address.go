@@ -23,9 +23,8 @@ type SolanaAddressData struct {
 
 // SolanaAddressGenerator generates Solana addresses
 type SolanaAddressGenerator struct {
-	counter    atomic.Uint64
-	baseSeed   [32]byte
-	maxUint256 *big.Int
+	counter  atomic.Uint64
+	baseSeed [32]byte
 }
 
 func NewSolanaAddressGenerator() (*SolanaAddressGenerator, error) {
@@ -34,11 +33,9 @@ func NewSolanaAddressGenerator() (*SolanaAddressGenerator, error) {
 	if err != nil || l != 32 {
 		return nil, fmt.Errorf("failed to generate random seed: %v", err)
 	}
-	maxUint256 := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
 
 	return &SolanaAddressGenerator{
-		baseSeed:   baseSeed,
-		maxUint256: maxUint256,
+		baseSeed: baseSeed,
 	}, nil
 }
 
@@ -47,9 +44,14 @@ func (g *SolanaAddressGenerator) Generate() (string, interface{}, error) {
 
 	// Combine base seed with counter to create unique seed
 	seedBn := new(big.Int).SetBytes(g.baseSeed[:])
-	seedBn.Add(seedBn, big.NewInt(int64(counter)))
-	if seedBn.Cmp(g.maxUint256) >= 0 {
-		seedBn.Mod(seedBn, g.maxUint256)
+	// Use SetUint64 to avoid uint64→int64 overflow when counter > math.MaxInt64
+	seedBn.Add(seedBn, new(big.Int).SetUint64(counter))
+
+	// Truncate to 32 bytes to prevent FillBytes panic when sum exceeds 256 bits.
+	// Ed25519 NewKeyFromSeed accepts any 32 bytes so wrapping is safe.
+	maxUint256 := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
+	if seedBn.Cmp(maxUint256) > 0 {
+		seedBn.And(seedBn, maxUint256)
 	}
 
 	var seed [32]byte
@@ -82,14 +84,15 @@ func VanityAddress(config *model.VanityConfig) error {
 		return err
 	}
 
-	// Estimate search space and time (using maxUint256 as upper bound)
-	estimateSeconds := new(big.Int).Mul(new(big.Int).Div(generator.maxUint256, big.NewInt(int64(config.Threads*10000000))), big.NewInt(23))
+	// Estimate search space and time
+	maxUint256 := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
+	estimateSeconds := new(big.Int).Mul(new(big.Int).Div(maxUint256, big.NewInt(int64(config.Threads*10000000))), big.NewInt(23))
 	secondsOf100Years := new(big.Int).Mul(big.NewInt(100), big.NewInt(365*24*60*60))
 	if estimateSeconds.Cmp(secondsOf100Years) == 1 {
 		estimateSeconds = secondsOf100Years
 	}
 	estimateTime := time.Duration(estimateSeconds.Uint64()) * time.Second
-	log.Printf("Search space: %v addresses, estimated max time: %v (2.6 GHz 6-Core Intel Core i7)", generator.maxUint256, estimateTime)
+	log.Printf("Search space: %v addresses, estimated max time: %v (2.6 GHz 6-Core Intel Core i7)", maxUint256, estimateTime)
 
 	// Create searcher
 	searcher := model.NewVanitySearcher(config, generator)

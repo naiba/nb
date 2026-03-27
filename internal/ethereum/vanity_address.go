@@ -9,23 +9,56 @@ import (
 	"log"
 	"math/big"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/naiba/nb/model"
 )
 
-// EthereumAddressGenerator generates random Ethereum EOA addresses
-type EthereumAddressGenerator struct{}
+// EthereumAddressGenerator generates Ethereum EOA addresses using deterministic
+// seed derivation (baseSeed + counter) for better performance than per-call CSPRNG.
+type EthereumAddressGenerator struct {
+	counter    atomic.Uint64
+	baseSeed   [32]byte
+	curveOrder *big.Int
+}
 
 type EthereumAddressData struct {
 	privateKey *ecdsa.PrivateKey
 	address    string
 }
 
+func NewEthereumAddressGenerator() (*EthereumAddressGenerator, error) {
+	var baseSeed [32]byte
+	l, err := rand.Read(baseSeed[:])
+	if err != nil || l != 32 {
+		return nil, fmt.Errorf("failed to generate random seed: %v", err)
+	}
+	// secp256k1 curve order n, valid private key range is [1, n-1]
+	curveOrder, _ := new(big.Int).SetString("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141", 16)
+
+	return &EthereumAddressGenerator{
+		baseSeed:   baseSeed,
+		curveOrder: curveOrder,
+	}, nil
+}
+
 func (g *EthereumAddressGenerator) Generate() (string, interface{}, error) {
-	// Generate random private key
-	privateKey, err := crypto.GenerateKey()
+	counter := g.counter.Add(1) - 1
+
+	// Combine base seed with counter to create unique seed
+	seedBn := new(big.Int).SetBytes(g.baseSeed[:])
+	// Use SetUint64 to avoid uint64→int64 overflow when counter > math.MaxInt64
+	seedBn.Add(seedBn, new(big.Int).SetUint64(counter))
+	// Mod by (n-1) then add 1 to ensure result is in [1, n-1]
+	seedBn.Mod(seedBn, new(big.Int).Sub(g.curveOrder, big.NewInt(1)))
+	seedBn.Add(seedBn, big.NewInt(1))
+
+	var seedBytes [32]byte
+	seedBn.FillBytes(seedBytes[:])
+
+	privateKey, err := crypto.ToECDSA(seedBytes[:])
 	if err != nil {
 		return "", nil, err
 	}
@@ -58,25 +91,22 @@ func VanityAddress(config *model.VanityConfig) error {
 		log.Printf("MaskValue: 0x%x", config.MaskValue)
 	}
 
-	// Estimate remaining addresses
-	initialSeedBytes := make([]byte, 32)
-	l, err := rand.Read(initialSeedBytes)
-	if err != nil || l != 32 {
-		return fmt.Errorf("failed to generate random seed: %v", err)
+	// Create generator
+	generator, err := NewEthereumAddressGenerator()
+	if err != nil {
+		return err
 	}
-	initialSeedBn := new(big.Int).SetBytes(initialSeedBytes)
-	MAX_UINT256 := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
-	remaining := new(big.Int).Sub(MAX_UINT256, initialSeedBn)
-	estimateSeconds := new(big.Int).Mul(new(big.Int).Div(remaining, big.NewInt(int64(config.Threads*10000000))), big.NewInt(23))
+
+	// Estimate search space and time (using curve order as upper bound)
+	estimateSeconds := new(big.Int).Mul(new(big.Int).Div(generator.curveOrder, big.NewInt(int64(config.Threads*10000000))), big.NewInt(23))
 	secondsOf100Years := new(big.Int).Mul(big.NewInt(100), big.NewInt(365*24*60*60))
 	if estimateSeconds.Cmp(secondsOf100Years) == 1 {
 		estimateSeconds = secondsOf100Years
 	}
 	estimateTime := time.Duration(estimateSeconds.Uint64()) * time.Second
-	log.Printf("Remaining addresses to search: %v, estimated time: %v (2.6 GHz 6-Core Intel Core i7)", remaining, estimateTime)
+	log.Printf("Search space: %v addresses, estimated max time: %v (2.6 GHz 6-Core Intel Core i7)", generator.curveOrder, estimateTime)
 
 	// Create searcher
-	generator := &EthereumAddressGenerator{}
 	searcher := model.NewVanitySearcher(config, generator)
 
 	// Search

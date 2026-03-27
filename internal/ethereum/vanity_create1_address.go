@@ -27,7 +27,7 @@ type Create1AddressData struct {
 type Create1AddressGenerator struct {
 	counter    atomic.Uint64
 	baseSeed   [32]byte
-	maxUint256 *big.Int
+	curveOrder *big.Int
 }
 
 func NewCreate1AddressGenerator() (*Create1AddressGenerator, error) {
@@ -36,11 +36,12 @@ func NewCreate1AddressGenerator() (*Create1AddressGenerator, error) {
 	if err != nil || l != 32 {
 		return nil, fmt.Errorf("failed to generate random seed: %v", err)
 	}
-	maxUint256 := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
+	// secp256k1 curve order n, valid private key range is [1, n-1]
+	curveOrder, _ := new(big.Int).SetString("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141", 16)
 
 	return &Create1AddressGenerator{
 		baseSeed:   baseSeed,
-		maxUint256: maxUint256,
+		curveOrder: curveOrder,
 	}, nil
 }
 
@@ -49,10 +50,12 @@ func (g *Create1AddressGenerator) Generate() (string, interface{}, error) {
 
 	// Combine base seed with counter to create unique seed
 	seedBn := new(big.Int).SetBytes(g.baseSeed[:])
-	seedBn.Add(seedBn, big.NewInt(int64(counter)))
-	if seedBn.Cmp(g.maxUint256) >= 0 {
-		seedBn.Mod(seedBn, g.maxUint256)
-	}
+	// Use SetUint64 to avoid uint64→int64 overflow when counter > math.MaxInt64
+	seedBn.Add(seedBn, new(big.Int).SetUint64(counter))
+	// Mod by secp256k1 curve order n to keep private key in valid range [0, n-1],
+	// then add 1 to ensure result is in [1, n-1] (zero is not a valid private key)
+	seedBn.Mod(seedBn, new(big.Int).Sub(g.curveOrder, big.NewInt(1)))
+	seedBn.Add(seedBn, big.NewInt(1))
 
 	var seedBytes [32]byte
 	seedBn.FillBytes(seedBytes[:])
@@ -116,14 +119,14 @@ func VanityCreate1Address(config *model.VanityConfig) error {
 		return err
 	}
 
-	// Estimate search space and time (using maxUint256 as upper bound)
-	estimateSeconds := new(big.Int).Mul(new(big.Int).Div(generator.maxUint256, big.NewInt(int64(config.Threads*10000000))), big.NewInt(23))
+	// Estimate search space and time (using curve order as upper bound)
+	estimateSeconds := new(big.Int).Mul(new(big.Int).Div(generator.curveOrder, big.NewInt(int64(config.Threads*10000000))), big.NewInt(23))
 	secondsOf100Years := new(big.Int).Mul(big.NewInt(100), big.NewInt(365*24*60*60))
 	if estimateSeconds.Cmp(secondsOf100Years) == 1 {
 		estimateSeconds = secondsOf100Years
 	}
 	estimateTime := time.Duration(estimateSeconds.Uint64()) * time.Second
-	log.Printf("Search space: %v addresses, estimated max time: %v (2.6 GHz 6-Core Intel Core i7)", generator.maxUint256, estimateTime)
+	log.Printf("Search space: %v addresses, estimated max time: %v (2.6 GHz 6-Core Intel Core i7)", generator.curveOrder, estimateTime)
 
 	// Create searcher
 	searcher := model.NewVanitySearcher(config, generator)
