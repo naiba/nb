@@ -33,52 +33,45 @@ var namingEnvCmd = &cli.Command{
 	Usage:           "Naming anchor env.",
 	SkipFlagParsing: true,
 	Action: func(ctx context.Context, cmd *cli.Command) error {
-		envName := cmd.Args().First()
-		if envName == "" {
-			return errors.New("env name is required")
+		programName := cmd.Args().Get(0)
+		envName := cmd.Args().Get(1)
+		if programName == "" || envName == "" {
+			return errors.New("usage: nb anchor naming-env <program> <env>")
 		}
 		currentPath, err := os.Getwd()
 		if err != nil {
 			return err
 		}
 		currentPath = filepath.Join(currentPath, "target", "deploy")
-		log.Println("Current path: ", currentPath)
+		// 只匹配指定 program 的 keypair，避免影响其他 program 的环境配置
+		keypairName := fmt.Sprintf("%s-keypair.json", programName)
+		keypairPath := filepath.Join(currentPath, keypairName)
+		if _, err := os.Stat(keypairPath); err != nil {
+			return fmt.Errorf("keypair file not found: %s", keypairName)
+		}
+		log.Printf("Found keypair: %s", keypairName)
+
 		envKeySuffix := fmt.Sprintf(".%s.json", envName)
-		var matchedKeys []string
-		filepath.WalkDir(currentPath, func(path string, d os.DirEntry, err error) error {
-			fileName := d.Name()
-			if strings.HasSuffix(fileName, "-keypair.json") {
-				log.Printf("Found env file: %s", fileName)
-				matchedKeys = append(matchedKeys, fileName)
-			}
+		envBaseName := strings.TrimSuffix(keypairName, filepath.Ext(keypairName)) + envKeySuffix
+		envPath := filepath.Join(currentPath, envBaseName)
+		if _, err := os.Stat(envPath); err == nil {
+			log.Printf("Env file(%s) already exists", envBaseName)
 			return nil
-		})
-		if len(matchedKeys) == 0 {
-			return fmt.Errorf("no matched env file(%s) found", envKeySuffix)
 		}
-		for _, key := range matchedKeys {
-			baseName := strings.TrimSuffix(key, filepath.Ext(key))
-			baseName += envKeySuffix
-			if _, err := os.Stat(filepath.Join(currentPath, baseName)); err == nil {
-				log.Printf("Env file(%s) already exists", baseName)
-				continue
-			}
-			envKeyFile, err := os.Create(filepath.Join(currentPath, baseName))
-			if err != nil {
-				log.Fatalf("Failed to create env file: %v", err)
-			}
-			defer envKeyFile.Close()
-			oldKeyFile, err := os.Open(filepath.Join(currentPath, key))
-			if err != nil {
-				log.Fatalf("Failed to open env file: %v", err)
-			}
-			defer oldKeyFile.Close()
-			_, err = io.Copy(envKeyFile, oldKeyFile)
-			if err != nil {
-				log.Fatalf("Failed to copy env file: %v", err)
-			}
-			log.Printf("Env file(%s) created", baseName)
+		envKeyFile, err := os.Create(envPath)
+		if err != nil {
+			return fmt.Errorf("failed to create env file: %w", err)
 		}
+		defer envKeyFile.Close()
+		oldKeyFile, err := os.Open(keypairPath)
+		if err != nil {
+			return fmt.Errorf("failed to open keypair file: %w", err)
+		}
+		defer oldKeyFile.Close()
+		if _, err = io.Copy(envKeyFile, oldKeyFile); err != nil {
+			return fmt.Errorf("failed to copy keypair file: %w", err)
+		}
+		log.Printf("Env file(%s) created", envBaseName)
 		return nil
 	},
 }
@@ -86,49 +79,43 @@ var namingEnvCmd = &cli.Command{
 var switchingEnvCmd = &cli.Command{
 	Name:            "switching-env",
 	Aliases:         []string{"se"},
-	Usage:           "Switching anchor env.",
+	Usage:           "Switching anchor env. Usage: nb anchor se <program> <env>",
 	SkipFlagParsing: true,
 	Action: func(ctx context.Context, cmd *cli.Command) error {
-		envName := cmd.Args().First()
-		if envName == "" {
-			return errors.New("env name is required")
+		programName := cmd.Args().Get(0)
+		envName := cmd.Args().Get(1)
+		if programName == "" || envName == "" {
+			return errors.New("usage: nb anchor switching-env <program> <env>")
 		}
 		currentPath, err := os.Getwd()
 		if err != nil {
 			return err
 		}
 		currentPath = filepath.Join(currentPath, "target", "deploy")
-		log.Println("Current path: ", currentPath)
-		envKeySuffix := fmt.Sprintf(".%s.json", envName)
-		log.Printf("Searching env file with suffix: %s", envKeySuffix)
-		var matchedKeys []string
-		filepath.WalkDir(currentPath, func(path string, d os.DirEntry, err error) error {
-			fileName := d.Name()
-			if strings.HasSuffix(fileName, envKeySuffix) {
-				log.Printf("Found env file: %s", fileName)
-				matchedKeys = append(matchedKeys, fileName)
-			}
-			return nil
-		})
-		if len(matchedKeys) == 0 {
-			return fmt.Errorf("no matched env file(%s) found", envKeySuffix)
-		}
-		for _, key := range matchedKeys {
-			baseName, err := getBaseNameFromKeyName(key)
-			if err != nil {
-				return err
-			}
-			baseName += ".json"
-			if err := os.Remove(filepath.Join(currentPath, baseName)); err != nil {
-				log.Fatalf("Failed to remove env file: %v", err)
-			}
-			if err := os.Symlink(filepath.Join(currentPath, key), filepath.Join(currentPath, baseName)); err != nil {
-				log.Fatalf("Failed to Symlink env file: %v", err)
-			}
-		}
 
-		keysSyncCmd := exec.Command("anchor", "keys", "sync")
-		keysSyncCmd.Dir = currentPath
+		// 只操作指定 program 的 keypair，避免影响其他 program 的环境配置
+		envFileName := fmt.Sprintf("%s-keypair.%s.json", programName, envName)
+		envFilePath := filepath.Join(currentPath, envFileName)
+		if _, err := os.Stat(envFilePath); err != nil {
+			return fmt.Errorf("env keypair not found: %s (run 'nb anchor ne %s %s' first)", envFileName, programName, envName)
+		}
+		log.Printf("Found env keypair: %s", envFileName)
+
+		symlinkName := fmt.Sprintf("%s-keypair.json", programName)
+		symlinkPath := filepath.Join(currentPath, symlinkName)
+		// 删除旧的 keypair 文件/符号链接，替换为指向目标环境的符号链接
+		if err := os.Remove(symlinkPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to remove old keypair: %w", err)
+		}
+		if err := os.Symlink(envFilePath, symlinkPath); err != nil {
+			return fmt.Errorf("failed to create symlink: %w", err)
+		}
+		log.Printf("Symlink: %s -> %s", symlinkName, envFileName)
+
+		// anchor keys sync 和 build 都限定到指定 program，避免重新编译全部程序
+		projectPath := filepath.Join(currentPath, "..", "..")
+		keysSyncCmd := exec.Command("anchor", "keys", "sync", "--program-name", programName)
+		keysSyncCmd.Dir = projectPath
 		keysSyncCmd.Stdin = os.Stdin
 		keysSyncCmd.Stdout = os.Stdout
 		keysSyncCmd.Stderr = os.Stderr
@@ -136,19 +123,11 @@ var switchingEnvCmd = &cli.Command{
 			return err
 		}
 
-		buildCmd := exec.Command("anchor", "build")
-		buildCmd.Dir = currentPath
+		buildCmd := exec.Command("anchor", "build", "-p", programName)
+		buildCmd.Dir = projectPath
 		buildCmd.Stdin = os.Stdin
 		buildCmd.Stdout = os.Stdout
 		buildCmd.Stderr = os.Stderr
 		return buildCmd.Run()
 	},
-}
-
-func getBaseNameFromKeyName(key string) (string, error) {
-	split := strings.Split(key, ".")
-	if len(split) < 2 {
-		return "", errors.New("invalid key, need (a.[env].json)")
-	}
-	return strings.Join(split[:len(split)-2], "."), nil
 }
