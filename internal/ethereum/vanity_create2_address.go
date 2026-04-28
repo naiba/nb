@@ -2,9 +2,11 @@ package ethereum
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"math/big"
+	"strconv"
 	"strings"
 	"sync/atomic"
 
@@ -15,20 +17,62 @@ import (
 )
 
 type Create2AddressData struct {
-	address    common.Address
+	addrBytes  [20]byte
 	saltStr    string
 	saltSuffix uint64
 }
 
-// Create2AddressGenerator generates CREATE2 contract addresses
+// Address returns the EIP-55 checksummed 0x-prefixed address.
+func (d *Create2AddressData) Address() string {
+	return common.Address(d.addrBytes).Hex()
+}
+
+// AddressBytes returns the raw 20-byte address.
+func (d *Create2AddressData) AddressBytes() [20]byte {
+	return d.addrBytes
+}
+
+// SaltString returns the salt (pre-hash) string used to produce the address.
+func (d *Create2AddressData) SaltString() string {
+	return d.saltStr
+}
+
+// Create2AddressGenerator mines CREATE2 addresses via EIP-1014:
+//
+//	addr = keccak256(0xff || deployer(20) || salt(32) || initCodeHash(32))[12:]
+//
+// deployer and initCodeHash are fixed per session, so the 85-byte hash input
+// is pre-built at construction; the hot path only rewrites the salt window.
+// maxSaltPrefixLen bounds the CLI `--salt-prefix` so the hot-path stack buffer
+// (saltBuf in Generate) can always fit the prefix + hex(uint64) suffix.
+// 16 = max hex chars of uint64. Keep saltBuf capacity in sync.
+const maxSaltPrefixLen = saltBufLen - 16
+
+// saltBufLen must be >= maxSaltPrefixLen + 16.
+const saltBufLen = 64
+
 type Create2AddressGenerator struct {
-	deployer     common.Address
-	saltPrefix   string
-	initCodeHash []byte
-	counter      *atomic.Uint64
+	counter    atomic.Uint64
+	saltPrefix string
+
+	// hashInputTemplate layout:
+	//   [0]     0xff
+	//   [1:21]  deployer
+	//   [21:53] salt (mutated per call via keccak256 of saltStr)
+	//   [53:85] initCodeHash
+	// Read-only after init; each call copies it to a local buffer before patching salt.
+	hashInputTemplate [85]byte
 }
 
 func NewCreate2AddressGenerator(deployer, saltPrefix, contractBin string, constructorArgs []string) (*Create2AddressGenerator, error) {
+	// Bound the CLI-supplied prefix so Generate's fixed [saltBufLen]byte buffer
+	// can always hold prefix + hex(uint64). Without this check, a long prefix
+	// would cause `saltBuf[:n]` to panic with "slice bounds out of range" once
+	// the counter grew enough hex digits to push n past saltBufLen.
+	if len(saltPrefix) > maxSaltPrefixLen {
+		return nil, fmt.Errorf("salt-prefix too long: %d bytes, max %d", len(saltPrefix), maxSaltPrefixLen)
+	}
+
 	// Parse constructor arguments
 	var args abi.Arguments
 	var vals []interface{}
@@ -41,46 +85,51 @@ func NewCreate2AddressGenerator(deployer, saltPrefix, contractBin string, constr
 		if err != nil {
 			return nil, fmt.Errorf("invalid ABI type %s: %w", argParts[0], err)
 		}
-		args = append(args, abi.Argument{
-			Type: abiType,
-		})
+		args = append(args, abi.Argument{Type: abiType})
 		vals = append(vals, abiStringArgToInterface(argParts[0], argParts[1]))
 	}
 
-	// Pack constructor arguments
 	argsPacked, err := args.Pack(vals...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to pack constructor arguments: %w", err)
 	}
 
-	// Prepare init code
 	initCode := append(common.FromHex(contractBin), argsPacked...)
 	initCodeHash := crypto.Keccak256(initCode)
 
-	return &Create2AddressGenerator{
-		deployer:     common.HexToAddress(deployer),
-		saltPrefix:   saltPrefix,
-		initCodeHash: initCodeHash,
-		counter:      &atomic.Uint64{},
-	}, nil
+	g := &Create2AddressGenerator{saltPrefix: saltPrefix}
+	g.hashInputTemplate[0] = 0xff
+	copy(g.hashInputTemplate[1:21], common.HexToAddress(deployer).Bytes())
+	// salt window [21:53] is filled per-call
+	copy(g.hashInputTemplate[53:85], initCodeHash)
+	return g, nil
 }
 
 func (g *Create2AddressGenerator) Generate() (string, interface{}, error) {
 	saltSuffix := g.counter.Add(1) - 1
-	saltStr := g.saltPrefix + fmt.Sprintf("%x", saltSuffix)
-	salt := crypto.Keccak256([]byte(saltStr))
 
-	saltBytes32 := new([32]byte)
-	copy(saltBytes32[:], salt)
+	// Build "saltPrefix<hex(suffix)>" into a stack buffer, avoiding fmt.Sprintf.
+	// NewCreate2AddressGenerator enforces len(saltPrefix) <= maxSaltPrefixLen,
+	// so prefix + 16 hex chars (max for uint64) always fits in saltBuf.
+	var saltBuf [saltBufLen]byte
+	n := copy(saltBuf[:], g.saltPrefix)
+	n += len(strconv.AppendUint(saltBuf[n:n], saltSuffix, 16))
+	saltStr := string(saltBuf[:n])
 
-	addr := crypto.CreateAddress2(g.deployer, *saltBytes32, g.initCodeHash)
+	saltHash := crypto.Keccak256Hash([]byte(saltStr))
 
-	// Get checksum address (EIP-55 format)
-	addressChecksum := addr.Hex()
-	addressHex := addressChecksum[2:] // Remove 0x prefix
+	hashInput := g.hashInputTemplate
+	copy(hashInput[21:53], saltHash[:])
+	out := crypto.Keccak256Hash(hashInput[:])
 
-	return addressHex, &Create2AddressData{
-		address:    addr,
+	var addr [20]byte
+	copy(addr[:], out[12:32])
+
+	var hexBuf [40]byte
+	hex.Encode(hexBuf[:], addr[:])
+
+	return string(hexBuf[:]), &Create2AddressData{
+		addrBytes:  addr,
 		saltStr:    saltStr,
 		saltSuffix: saltSuffix,
 	}, nil
@@ -104,13 +153,8 @@ func VanityCreate2Address(config *model.VanityConfig, deployer, saltPrefix, cont
 	log.Printf("REMINDER: Ethereum addresses only contain hexadecimal characters (0-9, a-f, A-F)")
 	log.Printf("Searching for CREATE2 address with deployer: %s", deployer)
 
-	if config.Contains != "" {
-		validHexChars := "0123456789abcdefABCDEF"
-		for _, char := range config.Contains {
-			if !strings.ContainsRune(validHexChars, char) {
-				return fmt.Errorf("contains illegal character: %c (Ethereum addresses only contain 0-9, a-f, A-F)", char)
-			}
-		}
+	if err := validateHexContains(config.Contains); err != nil {
+		return err
 	}
 
 	if config.Mask != nil {
@@ -118,27 +162,22 @@ func VanityCreate2Address(config *model.VanityConfig, deployer, saltPrefix, cont
 		log.Printf("MaskValue: 0x%x", config.MaskValue)
 	}
 
-	// Create generator
 	generator, err := NewCreate2AddressGenerator(deployer, saltPrefix, contractBin, constructorArgs)
 	if err != nil {
 		return err
 	}
 
-	searcher := model.NewVanitySearcher(config, generator)
+	searcher := model.NewVanitySearcher(config, generator).WithChecksum(EIP55Checksum)
 
-	// Search
 	result, err := searcher.Search(context.Background())
 	if err != nil {
 		return err
 	}
 
-	// Output result
 	data := result.Data.(*Create2AddressData)
-
-	// Compute salt hash only when found
 	salt := crypto.Keccak256([]byte(data.saltStr))
 
-	log.Printf("Address: %s", data.address.Hex())
+	log.Printf("Address: %s", data.Address())
 	log.Printf("Salt: %s", data.saltStr)
 	log.Printf("Salt (keccak256): 0x%x", salt)
 

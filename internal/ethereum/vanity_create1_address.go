@@ -2,110 +2,99 @@ package ethereum
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/hex"
-	"fmt"
 	"log"
-	"math/big"
-	"strings"
-	"sync/atomic"
-	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/naiba/nb/model"
 )
 
 type Create1AddressData struct {
-	deployerAddress common.Address
-	contractAddress common.Address
-	privateKeyBytes []byte
+	seed              [32]byte
+	deployerAddrBytes [20]byte
+	contractAddrBytes [20]byte
 }
 
-// Create1AddressGenerator generates CREATE1 contract addresses
+// DeployerAddress returns the EIP-55 checksummed deployer address (0x-prefixed).
+func (d *Create1AddressData) DeployerAddress() string {
+	return common.Address(d.deployerAddrBytes).Hex()
+}
+
+// ContractAddress returns the EIP-55 checksummed contract address (0x-prefixed).
+func (d *Create1AddressData) ContractAddress() string {
+	return common.Address(d.contractAddrBytes).Hex()
+}
+
+// PrivateKeyBytes returns the 32-byte private key of the deployer.
+func (d *Create1AddressData) PrivateKeyBytes() []byte {
+	return d.seed[:]
+}
+
+// Create1AddressGenerator generates CREATE1 contract addresses (nonce=0).
+// Wraps SecpKeyGenerator with an extra fixed RLP+Keccak step to turn the
+// deployer address into the nonce-0 contract address.
 type Create1AddressGenerator struct {
-	counter    atomic.Uint64
-	baseSeed   [32]byte
-	curveOrder *big.Int
+	*SecpKeyGenerator
 }
 
 func NewCreate1AddressGenerator() (*Create1AddressGenerator, error) {
-	var baseSeed [32]byte
-	l, err := rand.Read(baseSeed[:])
-	if err != nil || l != 32 {
-		return nil, fmt.Errorf("failed to generate random seed: %v", err)
+	kg, err := NewSecpKeyGenerator()
+	if err != nil {
+		return nil, err
 	}
-	// secp256k1 curve order n, valid private key range is [1, n-1]
-	curveOrder, _ := new(big.Int).SetString("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141", 16)
+	return &Create1AddressGenerator{SecpKeyGenerator: kg}, nil
+}
 
-	return &Create1AddressGenerator{
-		baseSeed:   baseSeed,
-		curveOrder: curveOrder,
-	}, nil
+func newCreate1AddressGeneratorFromSeed(seed [32]byte) *Create1AddressGenerator {
+	return &Create1AddressGenerator{SecpKeyGenerator: newSecpKeyGeneratorFromSeed(seed)}
 }
 
 func (g *Create1AddressGenerator) Generate() (string, interface{}, error) {
-	counter := g.counter.Add(1) - 1
-
-	// Combine base seed with counter to create unique seed
-	seedBn := new(big.Int).SetBytes(g.baseSeed[:])
-	// Use SetUint64 to avoid uint64→int64 overflow when counter > math.MaxInt64
-	seedBn.Add(seedBn, new(big.Int).SetUint64(counter))
-	// Mod by secp256k1 curve order n to keep private key in valid range [0, n-1],
-	// then add 1 to ensure result is in [1, n-1] (zero is not a valid private key)
-	seedBn.Mod(seedBn, new(big.Int).Sub(g.curveOrder, big.NewInt(1)))
-	seedBn.Add(seedBn, big.NewInt(1))
-
-	var seedBytes [32]byte
-	seedBn.FillBytes(seedBytes[:])
-
-	privateKey, err := crypto.ToECDSA(seedBytes[:])
+	seed, deployerAddr, err := g.Next()
 	if err != nil {
 		return "", nil, err
 	}
 
-	// Generate deployer address
-	deployerAddress := crypto.PubkeyToAddress(privateKey.PublicKey)
+	contractAddr := computeCreate1AddressBytes(deployerAddr)
 
-	// Compute contract address for first deployment (nonce=0)
-	contractAddress := computeCreate1Address(deployerAddress)
-
-	// Get checksum address (EIP-55 format)
-	contractAddrChecksum := contractAddress.Hex()
-	contractAddrHex := contractAddrChecksum[2:] // Remove 0x prefix
-
-	privateKeyBytes := crypto.FromECDSA(privateKey)
-
-	return contractAddrHex, &Create1AddressData{
-		deployerAddress: deployerAddress,
-		contractAddress: contractAddress,
-		privateKeyBytes: privateKeyBytes,
+	var hexBuf [40]byte
+	hex.Encode(hexBuf[:], contractAddr[:])
+	return string(hexBuf[:]), &Create1AddressData{
+		seed:              seed,
+		deployerAddrBytes: deployerAddr,
+		contractAddrBytes: contractAddr,
 	}, nil
 }
 
-// computeCreate1Address computes the contract address for the first transaction (nonce=0)
-func computeCreate1Address(deployerAddress common.Address) common.Address {
-	// For nonce=0, we compute: Keccak256(RLP([address, 0]))
-	data, _ := rlp.EncodeToBytes([]interface{}{deployerAddress, uint64(0)})
-	hash := crypto.Keccak256Hash(data)
+// computeCreate1AddressBytes returns keccak256(rlp([deployer, 0]))[12:].
+//
+// The RLP encoding is fixed-shape, so we build it manually to avoid
+// rlp.EncodeToBytes's reflect overhead. Layout (23 bytes):
+//
+//	0xd6       list header, 22-byte payload (0xc0 + 22)
+//	0x94       string header, 20-byte address (0x80 + 20)
+//	addr[0:20]
+//	0x80       zero nonce encoded as empty string
+func computeCreate1AddressBytes(deployer [20]byte) [20]byte {
+	var rlpBuf [23]byte
+	rlpBuf[0] = 0xd6
+	rlpBuf[1] = 0x94
+	copy(rlpBuf[2:22], deployer[:])
+	rlpBuf[22] = 0x80
 
-	var contractAddr common.Address
-	copy(contractAddr[:], hash[12:]) // Take the last 20 bytes
-	return contractAddr
+	hash := crypto.Keccak256Hash(rlpBuf[:])
+	var contract [20]byte
+	copy(contract[:], hash[12:32])
+	return contract
 }
 
 func VanityCreate1Address(config *model.VanityConfig) error {
 	log.Printf("REMINDER: Ethereum addresses only contain hexadecimal characters (0-9, a-f, A-F)")
 	log.Printf("Searching for contract address (first deployment, nonce=0) containing: %s", config.Contains)
 
-	if config.Contains != "" {
-		validHexChars := "0123456789abcdefABCDEF"
-		for _, char := range config.Contains {
-			if !strings.ContainsRune(validHexChars, char) {
-				return fmt.Errorf("contains illegal character: %c (Ethereum addresses only contain 0-9, a-f, A-F)", char)
-			}
-		}
+	if err := validateHexContains(config.Contains); err != nil {
+		return err
 	}
 
 	if config.Mask != nil {
@@ -113,36 +102,25 @@ func VanityCreate1Address(config *model.VanityConfig) error {
 		log.Printf("MaskValue: 0x%x", config.MaskValue)
 	}
 
-	// Create generator
 	generator, err := NewCreate1AddressGenerator()
 	if err != nil {
 		return err
 	}
 
-	// Estimate search space and time (using curve order as upper bound)
-	estimateSeconds := new(big.Int).Mul(new(big.Int).Div(generator.curveOrder, big.NewInt(int64(config.Threads*10000000))), big.NewInt(23))
-	secondsOf100Years := new(big.Int).Mul(big.NewInt(100), big.NewInt(365*24*60*60))
-	if estimateSeconds.Cmp(secondsOf100Years) == 1 {
-		estimateSeconds = secondsOf100Years
-	}
-	estimateTime := time.Duration(estimateSeconds.Uint64()) * time.Second
-	log.Printf("Search space: %v addresses, estimated max time: %v (2.6 GHz 6-Core Intel Core i7)", generator.curveOrder, estimateTime)
+	logSearchEstimate(curveOrderBigInt, config.Threads)
 
-	// Create searcher
-	searcher := model.NewVanitySearcher(config, generator)
+	searcher := model.NewVanitySearcher(config, generator).WithChecksum(EIP55Checksum)
 
-	// Search
 	result, err := searcher.Search(context.Background())
 	if err != nil {
 		return err
 	}
 
-	// Output result
 	data := result.Data.(*Create1AddressData)
-	privateKeyHex := hex.EncodeToString(data.privateKeyBytes)
+	privateKeyHex := hex.EncodeToString(data.PrivateKeyBytes())
 
-	log.Printf("Deployer Address: %s", data.deployerAddress.Hex())
-	log.Printf("Contract Address (first deployment, nonce=0): %s", data.contractAddress.Hex())
+	log.Printf("Deployer Address: %s", data.DeployerAddress())
+	log.Printf("Contract Address (first deployment, nonce=0): %s", data.ContractAddress())
 	log.Printf("Private Key (hex): %s", privateKeyHex)
 	log.Printf("Private Key (with 0x prefix): 0x%s", privateKeyHex)
 

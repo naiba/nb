@@ -2,61 +2,66 @@ package tron
 
 import (
 	"context"
-	"crypto/ecdsa"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"log"
 	"strings"
 
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/mr-tron/base58"
+	"github.com/naiba/nb/internal/ethereum"
 	"github.com/naiba/nb/model"
 )
 
 type TronAddressData struct {
-	address    string
-	privateKey *ecdsa.PrivateKey
+	address string
+	seed    [32]byte
 }
 
-// TronAddressGenerator generates Tron addresses
-type TronAddressGenerator struct{}
+// PrivateKeyBytes returns the 32-byte private key of the Tron address.
+func (d *TronAddressData) PrivateKeyBytes() []byte {
+	return d.seed[:]
+}
+
+// TronAddressGenerator builds Tron mainnet addresses on top of the shared
+// ethereum.SecpKeyGenerator. Tron reuses Ethereum's secp256k1→keccak address
+// hash; the only Tron-specific steps are the 0x41 prefix and the double-SHA256
+// checksum wrapped in base58.
+type TronAddressGenerator struct {
+	*ethereum.SecpKeyGenerator
+}
+
+func NewTronAddressGenerator() (*TronAddressGenerator, error) {
+	kg, err := ethereum.NewSecpKeyGenerator()
+	if err != nil {
+		return nil, err
+	}
+	return &TronAddressGenerator{SecpKeyGenerator: kg}, nil
+}
+
+// NewTronAddressGeneratorFromSeed is exported for deterministic tests.
+func NewTronAddressGeneratorFromSeed(seed [32]byte) *TronAddressGenerator {
+	return &TronAddressGenerator{SecpKeyGenerator: ethereum.NewSecpKeyGeneratorFromSeed(seed)}
+}
 
 func (g *TronAddressGenerator) Generate() (string, interface{}, error) {
-	privateKey, err := crypto.GenerateKey()
+	seed, ethAddr, err := g.Next()
 	if err != nil {
 		return "", nil, err
 	}
 
-	// Get public key
-	publicKey := privateKey.PublicKey
-	publicKeyBytes := crypto.FromECDSAPub(&publicKey)
-	// Remove the first byte (0x04 prefix for uncompressed public key)
-	publicKeyBytes = publicKeyBytes[1:]
+	// 25-byte payload: 0x41 || eth-addr (20) || checksum (4)
+	var payload [25]byte
+	payload[0] = 0x41
+	copy(payload[1:21], ethAddr[:])
 
-	// Hash the public key with Keccak256
-	hash := crypto.Keccak256(publicKeyBytes)
-	// Take last 20 bytes
-	addressBytes := hash[len(hash)-20:]
+	// Double SHA-256 on the first 21 bytes → take first 4 as checksum
+	h1 := sha256.Sum256(payload[:21])
+	h2 := sha256.Sum256(h1[:])
+	copy(payload[21:25], h2[:4])
 
-	// Add Tron mainnet prefix (0x41)
-	tronAddress := append([]byte{0x41}, addressBytes...)
-
-	// Calculate checksum (double SHA256)
-	hash1 := sha256.Sum256(tronAddress)
-	hash2 := sha256.Sum256(hash1[:])
-	checksum := hash2[:4]
-
-	// Append checksum
-	addressWithChecksum := append(tronAddress, checksum...)
-
-	// Encode with Base58
-	address := base58.Encode(addressWithChecksum)
-
-	return address, &TronAddressData{
-		address:    address,
-		privateKey: privateKey,
-	}, nil
+	address := base58.Encode(payload[:])
+	return address, &TronAddressData{address: address, seed: seed}, nil
 }
 
 func VanityAddress(config *model.VanityConfig) error {
@@ -72,13 +77,16 @@ func VanityAddress(config *model.VanityConfig) error {
 	}
 
 	// Tron addresses always start with 'T' for mainnet
-	if config.Mode == 1 { // prefix mode
+	if config.Mode == model.VanityModePrefix {
 		if !strings.HasPrefix(config.Contains, "T") {
 			log.Printf("WARNING: Tron mainnet addresses always start with 'T'. Your search pattern '%s' will need to match after the 'T'", config.Contains)
 		}
 	}
 
-	generator := &TronAddressGenerator{}
+	generator, err := NewTronAddressGenerator()
+	if err != nil {
+		return err
+	}
 	searcher := model.NewVanitySearcher(config, generator)
 
 	result, err := searcher.Search(context.Background())
@@ -88,8 +96,7 @@ func VanityAddress(config *model.VanityConfig) error {
 
 	data := result.Data.(*TronAddressData)
 
-	// Convert private key to hex only when found
-	privateKeyHex := hex.EncodeToString(crypto.FromECDSA(data.privateKey))
+	privateKeyHex := hex.EncodeToString(data.PrivateKeyBytes())
 
 	log.Printf("Address: %s", data.address)
 	log.Printf("Private Key (hex): %s", privateKeyHex)

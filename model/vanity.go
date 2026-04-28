@@ -8,9 +8,19 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
+// VanityMode selects how config.Contains is matched against candidate addresses.
+type VanityMode int
+
+const (
+	VanityModePrefix         VanityMode = iota + 1 // match at the start
+	VanityModeSuffix                               // match at the end
+	VanityModePrefixOrSuffix                       // match at either end
+	VanityModePrefixAndSuffix                      // match at both ends (non-overlapping)
+)
+
 type VanityConfig struct {
 	Contains      string
-	Mode          int // 1: prefix, 2: suffix, 3: prefix-or-suffix
+	Mode          VanityMode
 	CaseSensitive bool
 	UpperOrLower  bool
 	Threads       int
@@ -28,7 +38,7 @@ func VanityFlags() []cli.Flag {
 		&cli.StringFlag{
 			Name:    "mode",
 			Aliases: []string{"m"},
-			Usage:   "Matching position: prefix, suffix, prefix-or-suffix (default: prefix-or-suffix).",
+			Usage:   "Matching position: prefix, suffix, prefix-or-suffix, prefix-and-suffix (default: prefix-or-suffix).",
 			Value:   "prefix-or-suffix",
 		},
 		&cli.StringFlag{
@@ -117,16 +127,18 @@ func ParseVanityConfig(cmd *cli.Command) (*VanityConfig, error) {
 		}
 	}
 
-	var mode int
+	var mode VanityMode
 	switch modeStr {
 	case "prefix":
-		mode = 1
+		mode = VanityModePrefix
 	case "suffix":
-		mode = 2
+		mode = VanityModeSuffix
 	case "prefix-or-suffix":
-		mode = 3
+		mode = VanityModePrefixOrSuffix
+	case "prefix-and-suffix":
+		mode = VanityModePrefixAndSuffix
 	default:
-		return nil, fmt.Errorf("mode must be one of: prefix, suffix, prefix-or-suffix")
+		return nil, fmt.Errorf("mode must be one of: prefix, suffix, prefix-or-suffix, prefix-and-suffix")
 	}
 
 	var caseSensitive, upperOrLower bool
