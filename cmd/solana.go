@@ -8,6 +8,7 @@ import (
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
 	solanax "github.com/naiba/nb/internal/solana"
+	"github.com/naiba/nb/internal/solana/sandwich"
 	"github.com/naiba/nb/model"
 	"github.com/urfave/cli/v3"
 )
@@ -143,7 +144,7 @@ var decodeTransactionCmd = &cli.Command{
 
 var sandwichAttackCheckCmd = &cli.Command{
 	Name:  "check-sandwich-attack",
-	Usage: "Check sandwich attack.",
+	Usage: "Check if a user's Solana swap was sandwiched (auto-verdict).",
 	Aliases: []string{
 		"csa",
 	},
@@ -156,7 +157,7 @@ var sandwichAttackCheckCmd = &cli.Command{
 		&cli.StringFlag{
 			Name:    "address",
 			Aliases: []string{"a"},
-			Usage:   "The user's address.",
+			Usage:   "The user's wallet address.",
 		},
 		&cli.StringFlag{
 			Name:    "signature",
@@ -166,15 +167,23 @@ var sandwichAttackCheckCmd = &cli.Command{
 		&cli.StringFlag{
 			Name:    "token",
 			Aliases: []string{"t"},
-			Usage:   "The token to check. \"sol\" is for SOL, others are for SPL tokens.",
+			Usage:   "The token mint to check.",
+		},
+		&cli.IntFlag{
+			Name:  "slots",
+			Value: 2,
+			Usage: "Scan user_slot ±N slots (default 2; bump to 3-4 for cross-leader sandwiches).",
 		},
 	},
 	Action: func(ctx context.Context, cmd *cli.Command) error {
-		rpcUrl := cmd.String("rpc")
-		address := cmd.String("address")
-		signature := cmd.String("signature")
-		token := cmd.String("token")
-		return solanax.CheckSandwichAttack(ctx, rpcUrl, signature, address, token, 100)
+		return sandwich.Analyze(
+			ctx,
+			cmd.String("rpc"),
+			cmd.String("signature"),
+			cmd.String("address"),
+			cmd.String("token"),
+			int(cmd.Int("slots")),
+		)
 	},
 }
 
