@@ -79,6 +79,28 @@ func FetchContext(ctx context.Context, rpcURL string, userSig, userAddr, userMin
 		return nil, err
 	}
 
+	// User slot 的 block 比邻居重要得多: in-block sandwich (front/user/back 挤在同一 slot
+	// 的相邻 tx 位置) 是主流 MEV 模式,丢掉 user slot 等于丢掉最高发场景。若并发拉取恰好命中
+	// 这个 block 失败 (公共 RPC 抖动常见),做一次同步重试把它补回来。重试仍失败才真正记为
+	// skipped 并走 analyze.go 的 fc.UserTx fallback。
+	if _, ok := blocks[userSlot]; !ok {
+		blk, err := client.GetBlockWithOpts(ctx, userSlot, &rpc.GetBlockOpts{
+			MaxSupportedTransactionVersion: &maxVer,
+			Encoding:                       solana.EncodingBase64,
+		})
+		if err == nil && blk != nil {
+			blocks[userSlot] = blk
+			// 从 skipped 列表里剔除 userSlot,避免日志误导。
+			filtered := skipped[:0]
+			for _, s := range skipped {
+				if s != userSlot {
+					filtered = append(filtered, s)
+				}
+			}
+			skipped = filtered
+		}
+	}
+
 	// Derive the user's ATA. Token-2022 mints use a different program ID, so
 	// detect the mint owner first and build the PDA accordingly.
 	mintPk := solana.MustPublicKeyFromBase58(userMint)

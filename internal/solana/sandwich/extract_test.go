@@ -397,3 +397,50 @@ func TestExtractSwaps_NonFeePayerSingleMintSkipped(t *testing.T) {
 		t.Errorf("single-side transfer by non-feePayer should be skipped, got %d swaps", len(swaps))
 	}
 }
+
+// TestResolvedAccountKeys_V0WithLoadedAddresses 验证 v0 tx 的账户键解析顺序:
+// static ++ writable loaded ++ readonly loaded。顺序错了会让 TokenBalance.AccountIndex
+// 索引到错误的 owner,导致 extractLamportFlows / flows 的 owner 错位。
+func TestResolvedAccountKeys_V0WithLoadedAddresses(t *testing.T) {
+	staticA := solana.MustPublicKeyFromBase58(addrA)
+	staticB := solana.MustPublicKeyFromBase58(addrB)
+	writableX := solana.MustPublicKeyFromBase58(mintX)
+	readonlyY := solana.MustPublicKeyFromBase58(mintY)
+
+	ptx := &solana.Transaction{
+		Message: solana.Message{
+			AccountKeys: solana.PublicKeySlice{staticA, staticB},
+		},
+	}
+	meta := &rpc.TransactionMeta{
+		LoadedAddresses: rpc.LoadedAddresses{
+			Writable: solana.PublicKeySlice{writableX},
+			ReadOnly: solana.PublicKeySlice{readonlyY},
+		},
+	}
+
+	keys := resolvedAccountKeysAsStrings(ptx, meta)
+
+	want := []string{addrA, addrB, mintX, mintY}
+	if len(keys) != len(want) {
+		t.Fatalf("len: got %d, want %d; keys=%v", len(keys), len(want), keys)
+	}
+	for i, w := range want {
+		if keys[i] != w {
+			t.Errorf("keys[%d]: got %s, want %s", i, keys[i], w)
+		}
+	}
+
+	// 无 LoadedAddresses 时只应返回 static keys (legacy tx 场景)。
+	noLoaded := &rpc.TransactionMeta{}
+	keys2 := resolvedAccountKeysAsStrings(ptx, noLoaded)
+	if len(keys2) != 2 || keys2[0] != addrA || keys2[1] != addrB {
+		t.Errorf("legacy: got %v, want [%s %s]", keys2, addrA, addrB)
+	}
+
+	// meta=nil 不应 panic,回落到仅 static。
+	keys3 := resolvedAccountKeysAsStrings(ptx, nil)
+	if len(keys3) != 2 {
+		t.Errorf("nil meta: got len %d, want 2", len(keys3))
+	}
+}

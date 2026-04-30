@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"math/big"
+	"sort"
 
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
@@ -51,7 +52,7 @@ func Analyze(ctx context.Context, rpcURL, userSig, userAddr, userMint string, sl
 				continue
 			}
 			sig := base58.Encode(ptx.Signatures[0][:])
-			accountKeys := accountKeysAsStrings(ptx.Message.AccountKeys)
+			accountKeys := resolvedAccountKeysAsStrings(ptx, tx.Meta)
 			allSwaps = append(allSwaps,
 				ExtractSwapsFull(sig, slot, i, feePayer,
 					accountKeys, tx.Meta.PreBalances, tx.Meta.PostBalances,
@@ -85,7 +86,7 @@ func Analyze(ctx context.Context, rpcURL, userSig, userAddr, userMint string, sl
 		}
 		// TxIndex is unknown here; use -1. Detect sorts primarily by Slot so this
 		// is acceptable when no in-block neighbors exist for the user slot.
-		accountKeys := accountKeysAsStrings(ptx.Message.AccountKeys)
+		accountKeys := resolvedAccountKeysAsStrings(ptx, fc.UserTx.Meta)
 		allSwaps = append(allSwaps,
 			ExtractSwapsFull(userSig, fc.UserSlot, -1, feePayer,
 				accountKeys, fc.UserTx.Meta.PreBalances, fc.UserTx.Meta.PostBalances,
@@ -93,15 +94,68 @@ func Analyze(ctx context.Context, rpcURL, userSig, userAddr, userMint string, sl
 				fc.UserTx.Meta.PreTokenBalances, fc.UserTx.Meta.PostTokenBalances)...)
 	}
 
-	verdict := Detect(userSig, userAddr, userMint, allSwaps)
+	report := DetectDetailed(userSig, userAddr, userMint, allSwaps)
 
 	// Attach loss estimate only for Sandwiched verdicts with a front-run reference.
-	if verdict.Level == Sandwiched && verdict.FrontRun != nil {
-		verdict.LossEstimate = tryEstimateLoss(fc, verdict)
+	if report.Verdict.Level == Sandwiched && report.Verdict.FrontRun != nil {
+		report.Verdict.LossEstimate = tryEstimateLoss(fc, report.Verdict)
 	}
 
-	fmt.Println(Format(verdict))
+	// 组装资金流展示所需的 TxFlows 和 RelatedSigs。TxFlows 按 signature 分组,只保留
+	// 我们打算展示的 tx (user + 所有 front/back 候选 + RelatedPoolTxs),避免把几百条
+	// 同 mint 的无关 tx 全部铺出来刷屏。
+	report.TxFlows, report.RelatedSigs = buildTxFlows(userSig, allSwaps, report)
+
+	fmt.Println(FormatDetailed(report))
 	return nil
+}
+
+// buildTxFlows 基于 allSwaps (按 signature 分组) 和 detect 的中间结果,挑出要展示的 tx,
+// 返回其完整 Swap 列表和按展示顺序排好的 signature 列表。
+//
+// 展示集合 = {user tx} ∪ {RelatedPoolTxs 中 tx}。
+// 候选 front/back 但不在 user 池上的 tx (attacker 在独立池做套利) 不展示资金流 —— 他们
+// 的资金不经过 user 池, 列出来会让用户混淆 "这些钱和我有关吗"。这些 tx 在 Detection 段
+// 仍以 signature + pool 缩写形式出现, 足够解释为什么没判夹击。
+//
+// 顺序按 tx 的最小 (Slot, TxIndex) 升序; user tx 自然按时序排入。
+func buildTxFlows(userSig string, allSwaps []Swap, r DetailedReport) (map[string][]Swap, []string) {
+	include := map[string]bool{userSig: true}
+	for _, s := range r.Verdict.RelatedPoolTxs {
+		include[s.Signature] = true
+	}
+
+	flows := make(map[string][]Swap, len(include))
+	type sigKey struct {
+		slot    uint64
+		txIndex int
+	}
+	firstPos := map[string]sigKey{}
+
+	for _, s := range allSwaps {
+		if !include[s.Signature] {
+			continue
+		}
+		flows[s.Signature] = append(flows[s.Signature], s)
+		k := sigKey{s.Slot, s.TxIndex}
+		if cur, ok := firstPos[s.Signature]; !ok || k.slot < cur.slot ||
+			(k.slot == cur.slot && k.txIndex < cur.txIndex) {
+			firstPos[s.Signature] = k
+		}
+	}
+
+	order := make([]string, 0, len(flows))
+	for sig := range flows {
+		order = append(order, sig)
+	}
+	sort.Slice(order, func(i, j int) bool {
+		a, b := firstPos[order[i]], firstPos[order[j]]
+		if a.slot != b.slot {
+			return a.slot < b.slot
+		}
+		return a.txIndex < b.txIndex
+	})
+	return flows, order
 }
 
 // touchesMint returns true when the tx's token balances reference the given mint.
@@ -150,13 +204,22 @@ func tryEstimateLoss(fc *Context, v Verdict) *big.Int {
 	}
 
 	// Index pre balances by (owner, mint) for O(1) lookup below.
+	// 修复: 同一 PDA owner 可能持有同一 mint 的多个 vault(罕见但存在,如某些 CLMM
+	// 或 router 临时 ATA),旧实现后写覆盖会只取最后一个 vault 的余额。改为累加以
+	// 得到该 owner 在该 mint 下的总持仓。
 	type key struct{ owner, mint string }
 	amts := map[key]*big.Int{}
 	for _, b := range tx.Meta.PreTokenBalances {
 		if b.Owner == nil || b.UiTokenAmount == nil {
 			continue
 		}
-		amts[key{b.Owner.String(), b.Mint.String()}] = amountToBigInt(b.UiTokenAmount)
+		k := key{b.Owner.String(), b.Mint.String()}
+		amt := amountToBigInt(b.UiTokenAmount)
+		if existing, ok := amts[k]; ok {
+			amts[k] = new(big.Int).Add(existing, amt)
+		} else {
+			amts[k] = amt
+		}
 	}
 
 	// Find a counterparty pool in the front-run tx that holds both user.InMint
@@ -190,19 +253,9 @@ func extractSwapsFromTx(tx rpc.TransactionWithMeta, slot uint64, idx int) []Swap
 		return nil
 	}
 	sig := base58.Encode(ptx.Signatures[0][:])
-	accountKeys := accountKeysAsStrings(ptx.Message.AccountKeys)
+	accountKeys := resolvedAccountKeysAsStrings(ptx, tx.Meta)
 	return ExtractSwapsFull(sig, slot, idx, feePayer,
 		accountKeys, tx.Meta.PreBalances, tx.Meta.PostBalances,
 		tx.Meta.Fee, 0,
 		tx.Meta.PreTokenBalances, tx.Meta.PostTokenBalances)
-}
-
-// accountKeysAsStrings 把 solana.PublicKeySlice 转为 []string，
-// 供 ExtractSwapsFull 使用。
-func accountKeysAsStrings(keys solana.PublicKeySlice) []string {
-	out := make([]string, len(keys))
-	for i, k := range keys {
-		out[i] = k.String()
-	}
-	return out
 }

@@ -259,6 +259,86 @@ func TestDetect_RelatedPoolTxsCollected(t *testing.T) {
 	}
 }
 
+// TestDetect_BackRunOnDifferentPool_NotSandwiched 验证 D 条件 AND 语义:
+// front 在 user 的 poolA, back 在完全无关的 poolB -> 不算夹击。旧 OR 语义会误判。
+func TestDetect_BackRunOnDifferentPool_NotSandwiched(t *testing.T) {
+	userSwap := mkSwap("sigUser", 50, userAddr, userAddr, userMintValue(), mintY, 1000, 10, true)
+	userPool := mkSwap("sigUser", 50, userAddr, poolA, mintY, userMintValue(), 10, 1000, false)
+
+	// front: bot 同方向 via poolA (user 的池)
+	frontTrader := mkSwap("sigFront", 48, botAddr, botAddr, userMintValue(), mintY, 500, 6, true)
+	frontPool := mkSwap("sigFront", 48, botAddr, poolA, mintY, userMintValue(), 6, 500, false)
+
+	// back: bot 反方向但 via poolB (完全无关)
+	backTrader := mkSwap("sigBack", 55, botAddr, botAddr, mintY, userMintValue(), 8, 700, true)
+	backPool := mkSwap("sigBack", 55, botAddr, poolB, userMintValue(), mintY, 700, 8, false)
+
+	swaps := []Swap{frontTrader, frontPool, userSwap, userPool, backTrader, backPool}
+	v := Detect("sigUser", userAddr, userMintValue(), swaps)
+	if v.Level != NotSandwiched {
+		t.Fatalf("expected NotSandwiched (back on different pool, AND semantics), got %s", v.Level)
+	}
+}
+
+// TestDetect_AmountsMismatch_NotSandwiched 验证金额抵消校验:
+// bot 抢进 500 token 但 back-run 只卖 1 token (远低于 30%),视为不构成闭合的夹击,
+// 多半是 bot 持仓累积恰好与 user 反向撞上。
+func TestDetect_AmountsMismatch_NotSandwiched(t *testing.T) {
+	userSwap := mkSwap("sigUser", 50, userAddr, userAddr, userMintValue(), mintY, 1000, 10, true)
+	userPool := mkSwap("sigUser", 50, userAddr, poolA, mintY, userMintValue(), 10, 1000, false)
+
+	// front: bot 抢进 500 mintY via poolA
+	frontTrader := mkSwap("sigFront", 48, botAddr, botAddr, userMintValue(), mintY, 500, 6, true)
+	frontPool := mkSwap("sigFront", 48, botAddr, poolA, mintY, userMintValue(), 6, 500, false)
+
+	// back: bot 只卖 1 mintY (远低于 front.OutAmount=6 的 30%=1.8)
+	backTrader := mkSwap("sigBack", 55, botAddr, botAddr, mintY, userMintValue(), 1, 80, true)
+	backPool := mkSwap("sigBack", 55, botAddr, poolA, userMintValue(), mintY, 80, 1, false)
+
+	swaps := []Swap{frontTrader, frontPool, userSwap, userPool, backTrader, backPool}
+	v := Detect("sigUser", userAddr, userMintValue(), swaps)
+	if v.Level != NotSandwiched {
+		t.Fatalf("expected NotSandwiched (amount mismatch), got %s", v.Level)
+	}
+}
+
+// TestDetect_MultiMint_StillReportsRelated 验证 MultiMint (Jupiter 多跳) 场景下
+// 仍然暴露 RelatedPoolTxs,不是直接返回空让人工失去线索。
+func TestDetect_MultiMint_StillReportsRelated(t *testing.T) {
+	// user 是 Jupiter 多跳: 标 IsMultiMint 且 In/Out 留空
+	userSwap := Swap{
+		Signature: "sigUser", Slot: 100, TxIndex: 50,
+		FeePayer: userAddr, Owner: userAddr, IsTrader: true,
+		IsMultiMint: true,
+	}
+	// user tx 中碰到的某个 pool
+	userPool := mkSwap("sigUser", 50, userAddr, poolA, mintY, userMintValue(), 10, 1000, false)
+
+	// 另一个 tx 也碰了 poolA
+	arbTrader := mkSwap("sigArb", 55, botAddr, botAddr, mintY, userMintValue(), 5, 450, true)
+	arbPool := mkSwap("sigArb", 55, botAddr, poolA, userMintValue(), mintY, 450, 5, false)
+
+	swaps := []Swap{userSwap, userPool, arbTrader, arbPool}
+	v := Detect("sigUser", userAddr, userMintValue(), swaps)
+
+	if v.Level != NotSandwiched {
+		t.Fatalf("expected NotSandwiched (multi-hop), got %s", v.Level)
+	}
+	if len(v.RelatedPoolTxs) == 0 {
+		t.Fatalf("expected RelatedPoolTxs to be populated even for MultiMint, got empty")
+	}
+	// 至少 user 自己 tx 的 poolA swap + arb 的代表
+	foundArb := false
+	for _, s := range v.RelatedPoolTxs {
+		if s.Signature == "sigArb" {
+			foundArb = true
+		}
+	}
+	if !foundArb {
+		t.Errorf("expected sigArb in RelatedPoolTxs, got %+v", v.RelatedPoolTxs)
+	}
+}
+
 func TestDetect_RelatedPoolTxs_IncludesArbWithoutTraderSwap(t *testing.T) {
 	// arb bot 的 tx 里只有 pool swaps（trader 层被 extract 跳过），
 	// 但如果某个 pool 是 user 的对手池，依然要列出。

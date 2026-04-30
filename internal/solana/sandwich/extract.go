@@ -4,8 +4,40 @@ import (
 	"math/big"
 	"sort"
 
+	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
 )
+
+// resolvedAccountKeysAsStrings 返回 tx 的完整账户键列表（base58 字符串）,
+// 顺序为 static ++ meta.LoadedAddresses.Writable ++ meta.LoadedAddresses.ReadOnly,
+// 与 Solana 的 Pre/PostBalances / TokenBalance.AccountIndex 的索引语义一致。
+//
+// 修复 bug: v0 tx 通过 Address Lookup Table 引入的 writable/readonly addresses
+// 并不在 Message.AccountKeys 中,而是在 meta.LoadedAddresses 里。若仅用
+// Message.AccountKeys 会导致 extractLamportFlows 截短,丢失 loaded 地址上的
+// native SOL 变化,user swap 可能因此单边而被 classifySwapDirection 跳过。
+//
+// 不调用 Message.ResolveLookupsWith: 那会原地 mutate tx.Message.AccountKeys,
+// 后续再次调用或其他消费者会看到副作用;此处纯拼接,只读 meta。
+func resolvedAccountKeysAsStrings(ptx *solana.Transaction, meta *rpc.TransactionMeta) []string {
+	static := ptx.Message.AccountKeys
+	var writable, readonly solana.PublicKeySlice
+	if meta != nil {
+		writable = meta.LoadedAddresses.Writable
+		readonly = meta.LoadedAddresses.ReadOnly
+	}
+	out := make([]string, 0, len(static)+len(writable)+len(readonly))
+	for _, k := range static {
+		out = append(out, k.String())
+	}
+	for _, k := range writable {
+		out = append(out, k.String())
+	}
+	for _, k := range readonly {
+		out = append(out, k.String())
+	}
+	return out
+}
 
 // extractFlows 按 AccountIndex 对齐 Pre/Post，计算每个账户的 delta。
 //

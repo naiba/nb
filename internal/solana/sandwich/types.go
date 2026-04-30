@@ -79,3 +79,82 @@ type Verdict struct {
 	// 无论 Verdict 级别如何都填充，便于用户直接审阅所有相关活动。
 	RelatedPoolTxs []Swap
 }
+
+// AttackerEvidence 按单个 attacker (同 owner 或 feePayer 归并) 聚合其 frontrun + backrun
+// 活动,并给出同池判定 + 金额闭合判定 + 粗略利润。
+//
+// 设计参考 EVM 版 (chain-toolkit/src/func/analyze_evm_swap_tx.rs) 的 sender 聚合逻辑:
+// 按攻击者实体而非 (front, back) 笛卡尔对展示,每个 attacker 一条 profile,避免噪声。
+//
+// 方向口径说明 (以 user 为基准):
+//
+//	user 卖 user.InMint 买 user.OutMint
+//	attacker frontrun 同方向: 卖 user.InMint, 买 user.OutMint
+//	attacker backrun  反方向: 卖 user.OutMint, 买 user.InMint
+//
+// 所以聚合量为:
+//
+//	FrontSpentInMint = Σ frontruns.InAmount  (attacker 在 user.InMint 侧投入)
+//	FrontGotOutMint  = Σ frontruns.OutAmount (attacker 抢进的 user.OutMint)
+//	BackSpentOutMint = Σ backruns.InAmount   (attacker 甩出的 user.OutMint)
+//	BackGotInMint    = Σ backruns.OutAmount  (attacker 收回的 user.InMint)
+type AttackerEvidence struct {
+	AttackerKey    string // Owner 优先, 为空时回落到 FeePayer
+	AttackerKeyVia string // "owner" / "feePayer"
+
+	Frontruns []Swap
+	Backruns  []Swap
+
+	// SharedUserPool 是 {任一 front 的对手池} ∩ {任一 back 的对手池} ∩ userPools 的一个元素。
+	// 非空即 "同池硬条件" 通过 —— 这是参考 EVM 做法: 不同池直接过滤掉,不再进入判定。
+	SharedUserPool string
+
+	// 聚合金额
+	FrontSpentInMint *big.Int
+	FrontGotOutMint  *big.Int
+	BackSpentOutMint *big.Int
+	BackGotInMint    *big.Int
+
+	// AmountsCancel: BackSpentOutMint ∈ [30%, 300%] × FrontGotOutMint
+	// 判定是 aggregate 级别,同一 attacker 的多笔 front 和多笔 back 总量对比。
+	AmountsCancel bool
+
+	// IsSandwich = SharedUserPool != "" && AmountsCancel。
+	IsSandwich bool
+
+	// IsClassic 表示 front / user / back 全部在 user 的同一 slot 内 (典型 Jito bundle 节奏).
+	// false 则为跨 slot 的 "atypical" 夹击 (公网 mempool 抢跑, 非 bundle 原子化保障)。
+	// 仅在 IsSandwich=true 时有意义。
+	IsClassic bool
+
+	// NetProfitInMint = BackGotInMint - FrontSpentInMint (user.InMint 计价,粗略)。
+	// 仅在 IsSandwich=true 且 > 0 时填。CLMM/多跳/手续费会让这个估算偏离真实利润。
+	NetProfitInMint *big.Int
+}
+
+// DetailedReport 是默认 csa 输出需要的全部信息。相比裸 Verdict,它额外包含:
+//   - 相关 tx 的完整 Swap 列表(trader + 所有 pool 视角),供展示资金流
+//   - 按 attacker 聚合的 AttackerEvidence 列表,代替旧的 pair-level 笛卡尔积评估,
+//     让用户一眼看出 "有几个玩家在你前后做了反向操作,各在哪些池,闭合与否"。
+type DetailedReport struct {
+	Verdict Verdict
+
+	// TxFlows: signature -> 该 tx 所有 Swap(含 trader 和 pool 视角)。
+	// 用于按 owner 分组渲染完整资金流。
+	TxFlows map[string][]Swap
+
+	// RelatedSigs 按展示顺序排好: user 前的 tx (slot,txIndex 升序) → user → user 后的 tx。
+	// 只包含 Format 要展示的 tx,不等于所有扫描到的 tx。
+	RelatedSigs []string
+
+	// UserPools 是 user 自己 tx 中碰到的对手池 owner 集合(去重,排序)。
+	UserPools []string
+
+	// 所有 A+C 命中的 trader swap(保留给 Detection 段做总量统计)。
+	CandidateFronts []Swap
+	CandidateBacks  []Swap
+
+	// Attackers 按 attacker 聚合的证据,sort: IsSandwich=true 优先,其次 SharedUserPool!="" ,
+	// 再按最早 front 的 (slot, txIndex) 升序。
+	Attackers []AttackerEvidence
+}
