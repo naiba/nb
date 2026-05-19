@@ -8,7 +8,6 @@ import (
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
 	solanax "github.com/naiba/nb/internal/solana"
-	"github.com/naiba/nb/internal/solana/sandwich"
 	"github.com/naiba/nb/model"
 	"github.com/urfave/cli/v3"
 )
@@ -18,7 +17,6 @@ var solanaCmd = &cli.Command{
 	Usage: "Solana helper.",
 	Commands: []*cli.Command{
 		solanaVanityCmd,
-		sandwichAttackCheckCmd,
 		decodeTransactionCmd,
 		getTransactionCmd,
 	},
@@ -139,51 +137,6 @@ var decodeTransactionCmd = &cli.Command{
 		}
 
 		return err
-	},
-}
-
-var sandwichAttackCheckCmd = &cli.Command{
-	Name:  "check-sandwich-attack",
-	Usage: "Check if a user's Solana swap was sandwiched (auto-verdict).",
-	Aliases: []string{
-		"csa",
-	},
-	Flags: []cli.Flag{
-		&cli.StringFlag{
-			Name:    "rpc",
-			Aliases: []string{"r"},
-			Value:   "https://solana-rpc.publicnode.com",
-		},
-		&cli.StringFlag{
-			Name:    "address",
-			Aliases: []string{"a"},
-			Usage:   "The user's wallet address.",
-		},
-		&cli.StringFlag{
-			Name:    "signature",
-			Aliases: []string{"s"},
-			Usage:   "The transaction signature to check.",
-		},
-		&cli.StringFlag{
-			Name:    "token",
-			Aliases: []string{"t"},
-			Usage:   "The token mint to check.",
-		},
-		&cli.IntFlag{
-			Name:  "slots",
-			Value: 2,
-			Usage: "Scan user_slot ±N slots (default 2; bump to 3-4 for cross-leader sandwiches).",
-		},
-	},
-	Action: func(ctx context.Context, cmd *cli.Command) error {
-		return sandwich.Analyze(
-			ctx,
-			cmd.String("rpc"),
-			cmd.String("signature"),
-			cmd.String("address"),
-			cmd.String("token"),
-			int(cmd.Int("slots")),
-		)
 	},
 }
 

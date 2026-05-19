@@ -30,12 +30,6 @@ nb solana vanity -p Sol              # Solana: Sol...
 nb tron vanity -p T9y                # TRON: T9y...
 ```
 
-### Solana 三明治攻击检测
-
-```sh
-nb solana check-sandwich-attack --rpc https://api.mainnet-beta.solana.com --tx <signature>
-```
-
 ## 配置
 
 首次运行 `nb` 会生成配置文件 `~/.config/nb.yaml`，配置你的代理、SSH 主机和 Git 账号：

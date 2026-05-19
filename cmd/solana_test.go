@@ -5,6 +5,19 @@ import (
 	"testing"
 )
 
+func TestSolanaCsaCommandRemoved(t *testing.T) {
+	for _, c := range solanaCmd.Commands {
+		if c.Name == "check-sandwich-attack" {
+			t.Fatalf("solana check-sandwich-attack command should be removed")
+		}
+		for _, alias := range c.Aliases {
+			if alias == "csa" {
+				t.Fatalf("solana csa alias should be removed")
+			}
+		}
+	}
+}
+
 func TestBigInt(t *testing.T) {
 	MAX_UINT256 := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 256), big.NewInt(1))
 	if MAX_UINT256.String() != "115792089237316195423570985008687907853269984665640564039457584007913129639935" {
