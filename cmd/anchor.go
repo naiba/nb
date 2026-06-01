@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -76,6 +77,52 @@ var namingEnvCmd = &cli.Command{
 	},
 }
 
+// ensureCurrentKeypairBackedUp 在切换前校验 currentPath/<program>-keypair.json：
+//   - 不存在或是 symlink：可以安全替换。
+//   - 是普通文件：必须能在同目录找到一个 <program>-keypair.*.json 与其字节完全一致，
+//     否则视为未通过 naming-env 备份，拒绝继续，避免 key 丢失。
+func ensureCurrentKeypairBackedUp(deployDir, symlinkPath, programName string) error {
+	info, err := os.Lstat(symlinkPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to stat current keypair: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil
+	}
+
+	current, err := os.ReadFile(symlinkPath)
+	if err != nil {
+		return fmt.Errorf("failed to read current keypair: %w", err)
+	}
+
+	prefix := fmt.Sprintf("%s-keypair.", programName)
+	entries, err := os.ReadDir(deployDir)
+	if err != nil {
+		return fmt.Errorf("failed to read deploy dir: %w", err)
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, ".json") {
+			continue
+		}
+		// 跳过 <program>-keypair.json 自身，只比对 <program>-keypair.<env>.json
+		if name == fmt.Sprintf("%s-keypair.json", programName) {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(deployDir, name))
+		if err != nil {
+			continue
+		}
+		if bytes.Equal(bytes.TrimSpace(data), bytes.TrimSpace(current)) {
+			return nil
+		}
+	}
+	return fmt.Errorf("current %s-keypair.json has no matching env backup; run 'nb anchor ne %s <env>' first to avoid losing it", programName, programName)
+}
+
 var switchingEnvCmd = &cli.Command{
 	Name:            "switching-env",
 	Aliases:         []string{"se"},
@@ -103,6 +150,11 @@ var switchingEnvCmd = &cli.Command{
 
 		symlinkName := fmt.Sprintf("%s-keypair.json", programName)
 		symlinkPath := filepath.Join(currentPath, symlinkName)
+		// 切换前必须确保当前 keypair 已被某个 env 备份；否则 os.Remove 会永久丢失这把 key。
+		// 之前出过事：从未跑过 naming-env 的 program 直接 switching-env，原始 keypair 直接被删。
+		if err := ensureCurrentKeypairBackedUp(currentPath, symlinkPath, programName); err != nil {
+			return err
+		}
 		// 删除旧的 keypair 文件/符号链接，替换为指向目标环境的符号链接
 		if err := os.Remove(symlinkPath); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("failed to remove old keypair: %w", err)
