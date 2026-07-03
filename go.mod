@@ -17,7 +17,7 @@ require (
 	github.com/samber/lo v1.52.0
 	github.com/spf13/viper v1.21.0
 	github.com/urfave/cli/v3 v3.6.2
-	golang.org/x/crypto v0.47.0
+	golang.org/x/crypto v0.51.0
 	golang.org/x/oauth2 v0.34.0
 )
 
@@ -106,10 +106,10 @@ require (
 	go.uber.org/ratelimit v0.2.0 // indirect
 	go.uber.org/zap v1.21.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
-	golang.org/x/net v0.48.0 // indirect
+	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.40.0 // indirect
-	golang.org/x/term v0.39.0 // indirect
-	golang.org/x/text v0.33.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
+	golang.org/x/term v0.43.0 // indirect
+	golang.org/x/text v0.37.0 // indirect
 	golang.org/x/time v0.10.0 // indirect
 )
