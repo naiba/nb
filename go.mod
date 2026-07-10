@@ -17,7 +17,7 @@ require (
 	github.com/samber/lo v1.52.0
 	github.com/spf13/viper v1.21.0
 	github.com/urfave/cli/v3 v3.6.2
-	golang.org/x/crypto v0.51.0
+	golang.org/x/crypto v0.52.0
 	golang.org/x/oauth2 v0.34.0
 )
 
